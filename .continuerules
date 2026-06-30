@@ -1,0 +1,44 @@
+# MemoryGraph Continue 项目规则
+
+## 上下文
+
+- 项目：MemoryGraph 家庭私有记忆系统
+- 阶段：Photo → JSON（Mac 中枢 + iOS 采集）
+- Mac：Python（`hub/`、`tools/photo2json/`）
+- iOS：Swift（`apps/ios/`，能用即可）
+
+## 改代码流程
+
+1. 修改前先读取相关源文件
+2. 一次只做一个明确任务
+3. 只改用户要求的文件，保持最小 diff
+4. 改完后说明如何验证：
+   - 批量：`python tools/photo2json/main.py`
+   - Hub：`python hub/mac_server/main.py`
+
+## 不可违反的约束
+
+- JSON Schema 以 `schemas/photo.v1.json` 为准，字段名不可随意增删改
+- 唯一 AI 入口：`analyze_image()` in `hub/shared/analyzer.py`
+- 原图存 `data/photos/`，JSON 存 `data/memory/`
+- 单张失败不中断批处理
+- 不上传云端 API
+
+## 关键文件
+
+- `schemas/photo.v1.json` — 协议定义
+- `hub/shared/vision.py` — Ollama 视觉模型（OLLAMA_VISION_MODEL）
+- `hub/shared/face.py` — 人脸识别
+- `hub/shared/schema.py` — Python Schema 实现
+- `tools/photo2json/processor.py` — Mac 批量流水线
+- `hub/mac_server/server.py` — iOS 上传接口
+- `docs/architecture.md` — 架构说明
+- `AGENTS.md` — 完整协作约束
+
+## Schema 要点
+
+- `schema_version`：当前 `"1.0"`
+- `timestamp`：优先 EXIF，无则空字符串
+- `device_id`：`iphone` / `mac` 等
+- `source.path/width/height`：真实读取，不由 AI 返回
+- AI 字段由 `analyze_image()` 返回；iOS 可先留空

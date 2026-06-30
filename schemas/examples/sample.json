@@ -1,6 +1,8 @@
 {
+  "schema_version": "1.0",
   "photo_id": "IMG_0001",
-  "timestamp": "",
+  "timestamp": "2024-10-01T14:30:00",
+  "device_id": "iphone",
   "people": [],
   "scene": "",
   "location": "",
@@ -13,8 +15,8 @@
     "face_detected": false
   },
   "source": {
-    "path": "/Users/tradesk/Documents/MemoryGraph/photos/IMG_0001.jpg",
-    "width": 800,
-    "height": 600
+    "path": "/Users/you/MemoryGraph/data/photos/IMG_0001.jpg",
+    "width": 4032,
+    "height": 3024
   }
 }

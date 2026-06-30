@@ -1,0 +1,40 @@
+# Continue 配置片段 — 合并到 ~/.continue/config.yaml
+# 完整说明见 docs/ai-setup/README.md
+
+name: MemoryGraph Local
+version: 0.0.1
+schema: v1
+
+models:
+  - name: Qwen Coder MemoryGraph
+    provider: ollama
+    model: memorygraph-coder          # ollama create 后的名称，见 README
+    roles:
+      - chat
+      - edit
+      - apply
+    defaultCompletionOptions:
+      temperature: 0.15
+      maxTokens: 8192
+
+  # 可选：复杂任务切换云端（按需取消注释并填入 API Key）
+  # - name: DeepSeek Cloud
+  #   provider: openai
+  #   model: deepseek-chat
+  #   apiBase: https://api.deepseek.com/v1
+  #   apiKey: <YOUR_KEY>
+  #   roles: [chat, edit]
+
+context:
+  - provider: code
+  - provider: file
+  - provider: codebase               # 开启代码库索引
+
+rules:
+  - Use AGENTS.md and .continuerules as project conventions.
+  - Read source files before editing; never guess file contents.
+  - Photo2JSON only: do not add SQLite, RAG, Agent, Graph, or Web.
+  - JSON Schema field names are fixed in photo2json/schema.py — do not rename or add fields.
+  - Only AI entry point: analyze_image() in photo2json/analyzer.py.
+  - Keep changes minimal; one task at a time.
+  - Verify with: python photo2json/main.py

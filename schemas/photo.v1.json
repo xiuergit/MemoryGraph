@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memorygraph.local/schemas/photo.v1.json",
+  "title": "MemoryGraph Photo Memory",
+  "description": "单张照片的结构化记忆单元。iOS 与 Mac 共同遵守此协议。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "photo_id",
+    "timestamp",
+    "device_id",
+    "people",
+    "scene",
+    "location",
+    "objects",
+    "actions",
+    "emotion",
+    "tags",
+    "quality",
+    "source"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "photo_id": {
+      "type": "string",
+      "description": "文件名（不含扩展名），全库唯一"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "拍摄时间 ISO 8601；无 EXIF 则为空字符串"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "来源设备标识，如 iphone / mac；未知可为空字符串"
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "confidence": { "type": "number" }
+        }
+      }
+    },
+    "scene": { "type": "string" },
+    "location": { "type": "string" },
+    "objects": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "emotion": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["blur", "face_detected"],
+      "properties": {
+        "blur": { "type": "boolean" },
+        "face_detected": { "type": "boolean" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["path", "width", "height"],
+      "properties": {
+        "path": { "type": "string" },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "additionalProperties": false
+}

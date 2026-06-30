@@ -1,11 +1,13 @@
 """Family Memory 固定 JSON Schema 定义与组装逻辑。
 
-字段名称与结构不可随意修改，所有 Analyzer 实现必须兼容此协议。
+字段名称与结构以 schemas/photo.v1.json 为准，所有端（iOS / Mac）必须兼容此协议。
 """
 
 from __future__ import annotations
 
 from typing import Any, TypedDict
+
+from hub.shared.config import SCHEMA_VERSION
 
 
 class Person(TypedDict):
@@ -26,8 +28,10 @@ class Source(TypedDict):
 
 
 class PhotoJson(TypedDict):
+    schema_version: str
     photo_id: str
     timestamp: str
+    device_id: str
     people: list[Person]
     scene: str
     location: str
@@ -39,7 +43,7 @@ class PhotoJson(TypedDict):
     source: Source
 
 
-# Analyzer 应返回的 AI 分析字段（不含 photo_id / timestamp / source）
+# Analyzer 应返回的 AI 分析字段（不含 photo_id / timestamp / source / device_id）
 class AnalysisResult(TypedDict):
     people: list[Person]
     scene: str
@@ -70,11 +74,15 @@ def build_photo_json(
     timestamp: str,
     source: Source,
     analysis: AnalysisResult,
+    *,
+    device_id: str = "",
 ) -> PhotoJson:
     """将元数据与 AI 分析结果合并为完整 JSON 对象。"""
     return PhotoJson(
+        schema_version=SCHEMA_VERSION,
         photo_id=photo_id,
         timestamp=timestamp,
+        device_id=device_id,
         people=analysis["people"],
         scene=analysis["scene"],
         location=analysis["location"],
