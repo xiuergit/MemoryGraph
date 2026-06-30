@@ -53,6 +53,20 @@ def _parse_exif_datetime(value: str) -> str:
     return value
 
 
+def _collect_exif_tags(exif) -> dict:
+    """合并主 IFD 与 Exif 子 IFD 的标签（拍摄时间通常在子 IFD）。"""
+    tags: dict = {ExifTags.TAGS.get(k, k): v for k, v in exif.items()}
+    try:
+        sub = exif.get_ifd(0x8769)  # Exif IFD
+        for k, v in sub.items():
+            name = ExifTags.TAGS.get(k, k)
+            if name not in tags:
+                tags[name] = v
+    except (KeyError, ValueError, TypeError):
+        pass
+    return tags
+
+
 def extract_exif_timestamp(image_path: Path) -> str:
     """优先从 EXIF 读取拍摄时间，读取失败则返回空字符串。"""
     try:
@@ -61,8 +75,7 @@ def extract_exif_timestamp(image_path: Path) -> str:
             if not exif:
                 return ""
 
-            # 建立 tag id -> 名称 映射
-            tag_map = {ExifTags.TAGS.get(k, k): v for k, v in exif.items()}
+            tag_map = _collect_exif_tags(exif)
 
             for key in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
                 raw = tag_map.get(key)

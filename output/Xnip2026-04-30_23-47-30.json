@@ -1,0 +1,20 @@
+{
+  "photo_id": "Xnip2026-04-30_23-47-30",
+  "timestamp": "",
+  "people": [],
+  "scene": "",
+  "location": "",
+  "objects": [],
+  "actions": [],
+  "emotion": [],
+  "tags": [],
+  "quality": {
+    "blur": false,
+    "face_detected": false
+  },
+  "source": {
+    "path": "/Users/tradesk/Documents/MemoryGraph/photos/Xnip2026-04-30_23-47-30.jpg",
+    "width": 1794,
+    "height": 1342
+  }
+}
