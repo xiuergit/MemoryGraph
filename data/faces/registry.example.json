@@ -1,5 +1,17 @@
 {
-  "baby": "宝宝",
-  "mom": "妈妈",
-  "dad": "爸爸"
+  "baby": {
+    "name": "宝宝",
+    "birth_date": "2020-09-04",
+    "role": "child"
+  },
+  "mom": {
+    "name": "妈妈",
+    "birth_date": "1991-10-20",
+    "role": "parent"
+  },
+  "dad": {
+    "name": "爸爸",
+    "birth_date": "1991-11-22",
+    "role": "parent"
+  }
 }

@@ -1,12 +1,12 @@
 """图片分析入口。
 
 整个工程唯一的 AI 分析接口：analyze_image()。
-替换模型时只需修改环境变量 OLLAMA_VISION_MODEL，或调整 hub/shared/vision.py。
 """
 
 from __future__ import annotations
 
-from hub.shared.face import recognize_people
+from hub.shared.face import scan_faces
+from hub.shared.outfit import apply_outfit_fallback
 from hub.shared.schema import AnalysisResult, Person, Quality, empty_analysis
 from hub.shared.vision import analyze_image_ollama
 
@@ -16,7 +16,6 @@ def _merge_analysis(
     people: list[Person],
     face_detected: bool,
 ) -> AnalysisResult:
-    """合并 Ollama 视觉结果与人脸识别结果。"""
     quality = vision["quality"]
     return AnalysisResult(
         people=people,
@@ -33,14 +32,38 @@ def _merge_analysis(
     )
 
 
-def analyze_image(image_path: str) -> dict:
+def _strip_internal_person_fields(people: list[Person]) -> list[Person]:
+    cleaned: list[Person] = []
+    for person in people:
+        p = dict(person)
+        p.pop("bbox", None)
+        cleaned.append(Person(**p))
+    return cleaned
+
+
+def analyze_image(
+    image_path: str,
+    *,
+    timestamp: str = "",
+    photo_id: str = "",
+) -> dict:
     """分析单张图片，返回符合 Schema 的 AI 字段。
 
-    - 场景语义：本地 Ollama 视觉模型（OLLAMA_VISION_MODEL）
-    - 人物识别：InsightFace 人脸库（需先 face_enroll）
-    - location 在 processor 中还会用 EXIF GPS / 高德补充
+    - 场景语义：Ollama 视觉模型
+    - 人物识别：InsightFace 人脸库
+    - 衣着兜底：CLIP 比对当日已缓存穿搭（脸不清时）
     """
     vision = analyze_image_ollama(image_path)
-    people, face_detected = recognize_people(image_path)
+
+    face_people, unmatched_bboxes, face_detected = scan_faces(image_path)
+    people = apply_outfit_fallback(
+        image_path,
+        timestamp=timestamp,
+        photo_id=photo_id,
+        face_people=face_people,
+        unmatched_bboxes=unmatched_bboxes,
+    )
+    people = _strip_internal_person_fields(people)
+
     result = _merge_analysis(vision, people, face_detected)
     return dict(result)

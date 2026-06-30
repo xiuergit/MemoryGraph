@@ -10,10 +10,22 @@ from typing import Any, TypedDict
 from hub.shared.config import SCHEMA_VERSION
 
 
-class Person(TypedDict):
+class AgeAtPhoto(TypedDict):
+    years: int
+    months: int
+    days: int
+    total_days: int
+    label: str
+
+
+class Person(TypedDict, total=False):
     id: str
     name: str
     confidence: float
+    role: str
+    age_at_photo: AgeAtPhoto
+    match_method: str
+    bbox: list[float]
 
 
 class Quality(TypedDict):
@@ -27,7 +39,7 @@ class Source(TypedDict):
     height: int
 
 
-class PhotoJson(TypedDict):
+class PhotoJson(TypedDict, total=False):
     schema_version: str
     photo_id: str
     timestamp: str
@@ -35,12 +47,14 @@ class PhotoJson(TypedDict):
     people: list[Person]
     scene: str
     location: str
+    location_coords: str
     objects: list[str]
     actions: list[str]
     emotion: list[str]
     tags: list[str]
     quality: Quality
     source: Source
+    manual_edit: bool
 
 
 # Analyzer 应返回的 AI 分析字段（不含 photo_id / timestamp / source / device_id）
@@ -76,6 +90,7 @@ def build_photo_json(
     analysis: AnalysisResult,
     *,
     device_id: str = "",
+    location_coords: str = "",
 ) -> PhotoJson:
     """将元数据与 AI 分析结果合并为完整 JSON 对象。"""
     return PhotoJson(
@@ -86,6 +101,7 @@ def build_photo_json(
         people=analysis["people"],
         scene=analysis["scene"],
         location=analysis["location"],
+        location_coords=location_coords,
         objects=analysis["objects"],
         actions=analysis["actions"],
         emotion=analysis["emotion"],

@@ -12,7 +12,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from hub.shared.config import PHOTOS_DIR
+from hub.shared.config import MEMORY_DIR, PHOTOS_DIR
+from hub.shared.location_cluster import apply_location_normalization
 from tools.photo2json.processor import process_folder
 
 
@@ -39,9 +40,18 @@ def main() -> int:
         action="store_true",
         help="重新生成已存在的 JSON",
     )
+    parser.add_argument(
+        "--normalize-locations",
+        action="store_true",
+        help="仅按同日相邻照片统一 location，不跑 AI 分析",
+    )
     args = parser.parse_args()
 
     setup_logging()
+    if args.normalize_locations:
+        changed = apply_location_normalization(MEMORY_DIR)
+        return 0 if changed >= 0 else 1
+
     stats = process_folder(args.input, skip_existing=not args.force)
     return 1 if stats.failed > 0 else 0
 

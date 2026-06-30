@@ -12,7 +12,8 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from hub.shared.analyzer import analyze_image
 from hub.shared.config import MEMORY_DIR, PHOTOS_DIR
-from hub.shared.schema import analysis_from_dict, build_photo_json
+from hub.shared.family import enrich_people_with_age
+from hub.shared.schema import AnalysisResult, analysis_from_dict, build_photo_json
 from hub.shared.utils import (
     build_source_info,
     enrich_analysis_location,
@@ -62,24 +63,34 @@ async def import_photo(
     content = await file.read()
     dest_photo.write_bytes(content)
 
+    incoming: dict | None = None
     if json_payload:
         try:
             incoming = json.loads(json_payload)
         except json.JSONDecodeError:
             return JSONResponse({"error": "invalid json_payload"}, status_code=400)
-        analysis = enrich_analysis_location(
-            analysis_from_dict(incoming),
-            dest_photo,
-        )
         timestamp = incoming.get("timestamp") or extract_exif_timestamp(dest_photo)
         device = incoming.get("device_id") or device_id
     else:
-        analysis = enrich_analysis_location(
-            analysis_from_dict(analyze_image(str(dest_photo))),
-            dest_photo,
-        )
         timestamp = extract_exif_timestamp(dest_photo)
         device = device_id
+
+    raw = analyze_image(
+        str(dest_photo),
+        timestamp=timestamp,
+        photo_id=photo_id,
+    )
+    analysis, location_coords = enrich_analysis_location(analysis_from_dict(raw), dest_photo)
+    analysis = AnalysisResult(
+        people=enrich_people_with_age(analysis["people"], timestamp),
+        scene=analysis["scene"],
+        location=analysis["location"],
+        objects=analysis["objects"],
+        actions=analysis["actions"],
+        emotion=analysis["emotion"],
+        tags=analysis["tags"],
+        quality=analysis["quality"],
+    )
 
     source = build_source_info(dest_photo)
     photo_json = build_photo_json(
@@ -88,6 +99,7 @@ async def import_photo(
         source=source,
         analysis=analysis,
         device_id=device,
+        location_coords=location_coords,
     )
 
     memory_path = MEMORY_DIR / f"{photo_id}.json"

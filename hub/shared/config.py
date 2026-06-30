@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 PHOTOS_DIR = DATA_DIR / "photos"
 MEMORY_DIR = DATA_DIR / "memory"
+MEMORY_DB = DATA_DIR / "memorygraph.db"
 
 # 支持的图片扩展名（小写，含点号）
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
@@ -20,7 +21,7 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 JSON_INDENT = 2
 
 # 当前协议版本，与 schemas/photo.v1.json 一致
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 # 高德逆地理编码 Key（环境变量，勿写入代码）
 # 申请：https://lbs.amap.com/ → 创建应用 → Web 服务 API
@@ -44,8 +45,29 @@ OLLAMA_VISION_ENABLED = os.environ.get("OLLAMA_VISION_ENABLED", "true").lower() 
 )
 OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "180"))
 
+# Ollama 文本对话（Agent 问答，与视觉模型分开配置）
+OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:7b")
+OLLAMA_CHAT_ENABLED = os.environ.get("OLLAMA_CHAT_ENABLED", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 # InsightFace 人脸识别
 # 模型：buffalo_s（小、下载快）| buffalo_l（更准、更大）
 INSIGHTFACE_MODEL = os.environ.get("INSIGHTFACE_MODEL", "buffalo_s")
 # 模型目录，默认 ~/.insightface/models；可指向已手动下载的目录
 INSIGHTFACE_ROOT = os.environ.get("INSIGHTFACE_ROOT", "")
+
+# CLIP 衣着兜底（脸不清时比对当日穿搭向量）
+OUTFIT_CACHE_DIR = DATA_DIR / "cache" / "outfit"
+CLIP_ENABLED = os.environ.get("CLIP_ENABLED", "true").lower() in ("1", "true", "yes")
+CLIP_MODEL_NAME = os.environ.get("CLIP_MODEL_NAME", "ViT-B-32")
+CLIP_PRETRAINED = os.environ.get("CLIP_PRETRAINED", "openai")
+OUTFIT_MATCH_THRESHOLD = float(os.environ.get("OUTFIT_MATCH_THRESHOLD", "0.82"))
+OUTFIT_MAX_CONFIDENCE = float(os.environ.get("OUTFIT_MAX_CONFIDENCE", "0.72"))
+
+# HuggingFace 镜像（CLIP 权重下载）。国内默认 hf-mirror，海外可设 HF_ENDPOINT=
+_hf_endpoint = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com")
+if _hf_endpoint:
+    os.environ.setdefault("HF_ENDPOINT", _hf_endpoint)

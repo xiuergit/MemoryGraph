@@ -19,7 +19,24 @@ faces/
 - 尽量单人照；合照也可，会取最大的一张脸
 - 支持 `.jpg` `.jpeg` `.png` `.heic` `.heif`
 
-## 注册人脸库
+## registry.json 格式
+
+```json
+{
+  "baby": {
+    "name": "宝宝",
+    "birth_date": "2020-09-04",
+    "role": "child"
+  },
+  "mom": {
+    "name": "妈妈",
+    "birth_date": "1991-10-20",
+    "role": "parent"
+  }
+}
+```
+
+`birth_date` 用于在 JSON 里自动计算 `people[].age_at_photo`（几岁几月几天、出生第几天）。
 
 ```bash
 # 1. 复制并编辑显示名（可选）

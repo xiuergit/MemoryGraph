@@ -113,7 +113,7 @@ Python 实现：`hub/shared/schema.py`
 ## 当前状态（V0.2）
 
 - 目录重组：Mac 中枢 + 双路径入库
-- `analyze_image()` 已接入 Ollama 视觉模型 + InsightFace 人脸识别
+- `analyze_image()` 已接入：Ollama 视觉 + InsightFace + CLIP 衣着兜底
 - Mac 批量工具：`tools/photo2json`
 - Mac Hub 骨架：`hub/mac_server`（`POST /import`）
 - iOS App：待开发（`apps/ios/README.md`）

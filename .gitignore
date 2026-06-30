@@ -13,6 +13,8 @@ data/photos/*
 data/memory/*
 !data/memory/.gitkeep
 data/.geocode_cache.json
+data/cache/**
+data/*.db
 
 # 人脸库（参考照与索引不进 git）
 data/faces/**/*

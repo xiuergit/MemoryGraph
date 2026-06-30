@@ -22,7 +22,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0"
+      "enum": ["1.0", "1.1"]
     },
     "photo_id": {
       "type": "string",
@@ -44,12 +44,36 @@
         "properties": {
           "id": { "type": "string" },
           "name": { "type": "string" },
-          "confidence": { "type": "number" }
+          "confidence": { "type": "number" },
+          "role": { "type": "string" },
+          "match_method": {
+            "type": "string",
+            "enum": ["face", "outfit"],
+            "description": "face=人脸识别，outfit=衣着兜底"
+          },
+          "age_at_photo": {
+            "type": "object",
+            "required": ["years", "months", "days", "total_days", "label"],
+            "properties": {
+              "years": { "type": "integer", "minimum": 0 },
+              "months": { "type": "integer", "minimum": 0 },
+              "days": { "type": "integer", "minimum": 0 },
+              "total_days": { "type": "integer", "minimum": 0 },
+              "label": { "type": "string" }
+            }
+          }
         }
       }
     },
     "scene": { "type": "string" },
-    "location": { "type": "string" },
+    "location": {
+      "type": "string",
+      "description": "可读地名，如 古猗园；由逆地理编码 + 同日归一得出"
+    },
+    "location_coords": {
+      "type": "string",
+      "description": "EXIF GPS 原始坐标，格式 '纬度,经度'；无 GPS 则为空字符串"
+    },
     "objects": {
       "type": "array",
       "items": { "type": "string" }

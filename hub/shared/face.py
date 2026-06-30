@@ -92,6 +92,9 @@ def _load_image_bgr(image_path: Path) -> Any | None:
     return bgr
 
 
+load_image_bgr = _load_image_bgr
+
+
 def _largest_face(faces: list) -> Any | None:
     if not faces:
         return None
@@ -114,16 +117,9 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 def load_registry(registry_file: Path | None = None) -> dict[str, str]:
     """读取 id → 显示名 映射。文件不存在时返回空 dict。"""
-    path = registry_file or FACE_REGISTRY_FILE
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return {str(k): str(v) for k, v in data.items()}
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("读取 registry.json 失败: %s", exc)
-    return {}
+    from hub.shared.family import load_display_names
+
+    return load_display_names(registry_file)
 
 
 def load_face_index() -> dict[str, Any] | None:
@@ -266,40 +262,76 @@ def _match_embedding(
     )
 
 
-def recognize_people(image_path: str | Path) -> tuple[list[Person], bool]:
-    """识别图片中的人脸，返回 (people 列表, 是否检测到脸)。"""
+def expand_face_bbox_to_body(
+    bbox: tuple[float, float, float, float],
+    img_h: int,
+    img_w: int,
+) -> tuple[int, int, int, int]:
+    """由人脸框向下扩展出粗略人体/衣着区域。"""
+    x1, y1, x2, y2 = bbox
+    w = max(x2 - x1, 1.0)
+    h = max(y2 - y1, 1.0)
+    nx1 = max(0, int(x1 - 0.25 * w))
+    nx2 = min(img_w, int(x2 + 0.25 * w))
+    ny1 = max(0, int(y1 - 0.15 * h))
+    ny2 = min(img_h, int(y2 + 2.0 * h))
+    if nx2 <= nx1 or ny2 <= ny1:
+        return 0, 0, img_w, img_h
+    return nx1, ny1, nx2, ny2
+
+
+def scan_faces(image_path: str | Path) -> tuple[list[Person], list[tuple[float, float, float, float]], bool]:
+    """扫描人脸：返回 (已识别 people, 未匹配人脸框列表, 是否检测到脸)。"""
     index = load_face_index()
     if index is None:
-        return [], False
+        return [], [], False
 
     app = _get_face_app()
     if app is None:
-        return [], False
+        return [], [], False
 
     path = Path(image_path)
     bgr = _load_image_bgr(path)
     if bgr is None:
-        return [], False
+        return [], [], False
 
     try:
         faces = app.get(bgr)
     except Exception as exc:
         logger.warning("人脸识别失败 %s: %s", path, exc)
-        return [], False
+        return [], [], False
 
     if not faces:
-        return [], False
+        return [], [], False
 
     threshold = float(index.get("threshold", FACE_MATCH_THRESHOLD))
     matched: dict[str, Person] = {}
+    unmatched_bboxes: list[tuple[float, float, float, float]] = []
 
     for face in faces:
+        bbox = tuple(float(v) for v in face.bbox)
         embedding = face.embedding.astype(float).tolist()
         person = _match_embedding(embedding, index, threshold)
         if person is None:
+            unmatched_bboxes.append(bbox)  # type: ignore[arg-type]
             continue
+
+        person_dict = dict(person)
+        person_dict["match_method"] = "face"
+        person_dict["bbox"] = list(bbox)
         existing = matched.get(person["id"])
         if existing is None or person["confidence"] > existing["confidence"]:
-            matched[person["id"]] = person
+            matched[person["id"]] = Person(**person_dict)
 
-    return list(matched.values()), True
+    return list(matched.values()), unmatched_bboxes, True
+
+
+def recognize_people(image_path: str | Path) -> tuple[list[Person], bool]:
+    """识别图片中的人脸，返回 (people 列表, 是否检测到脸)。"""
+    people, _, face_detected = scan_faces(image_path)
+    cleaned: list[Person] = []
+    for person in people:
+        p = dict(person)
+        p.pop("bbox", None)
+        cleaned.append(Person(**p))
+    return cleaned, face_detected

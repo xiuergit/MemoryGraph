@@ -137,15 +137,15 @@ def extract_exif_location(image_path: Path) -> str:
 def enrich_analysis_location(
     analysis: AnalysisResult,
     image_path: Path,
-) -> AnalysisResult:
-    """用 EXIF GPS 填充 location，并尝试逆地理编码为中文地址。"""
+) -> tuple[AnalysisResult, str]:
+    """用 EXIF GPS 填充 location（可读地名）与 location_coords（原始坐标）。"""
     exif_coords = extract_exif_location(image_path)
     if not exif_coords:
-        return analysis
+        return analysis, ""
 
     enriched = dict(analysis)
     enriched["location"] = resolve_location(exif_coords)
-    return AnalysisResult(**enriched)
+    return AnalysisResult(**enriched), exif_coords
 
 
 def get_image_dimensions(image_path: Path) -> tuple[int, int]:

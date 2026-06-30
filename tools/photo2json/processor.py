@@ -10,7 +10,9 @@ from pathlib import Path
 
 from hub.shared.analyzer import analyze_image
 from hub.shared.config import JSON_INDENT, MEMORY_DIR, PHOTOS_DIR
-from hub.shared.schema import analysis_from_dict, build_photo_json
+from hub.shared.location_cluster import apply_location_normalization
+from hub.shared.schema import AnalysisResult, analysis_from_dict, build_photo_json
+from hub.shared.family import enrich_people_with_age
 from hub.shared.utils import (
     build_source_info,
     enrich_analysis_location,
@@ -54,16 +56,39 @@ def _process_single_image(
     photo_id = get_photo_id(image_path, root=input_root)
     output_path = memory_dir / f"{photo_id}.json"
 
+    if output_path.exists():
+        try:
+            existing = json.loads(output_path.read_text(encoding="utf-8"))
+            if existing.get("manual_edit"):
+                logger.info("跳过（手动编辑）: %s", photo_id)
+                return "skipped"
+        except (json.JSONDecodeError, OSError):
+            pass
+
     if skip_existing and output_path.exists():
         return "skipped"
 
     timestamp = extract_exif_timestamp(image_path)
     source = build_source_info(image_path)
 
-    raw_analysis = analyze_image(str(image_path))
-    analysis = enrich_analysis_location(
+    raw_analysis = analyze_image(
+        str(image_path),
+        timestamp=timestamp,
+        photo_id=photo_id,
+    )
+    analysis, location_coords = enrich_analysis_location(
         analysis_from_dict(raw_analysis),
         image_path,
+    )
+    analysis = AnalysisResult(
+        people=enrich_people_with_age(analysis["people"], timestamp),
+        scene=analysis["scene"],
+        location=analysis["location"],
+        objects=analysis["objects"],
+        actions=analysis["actions"],
+        emotion=analysis["emotion"],
+        tags=analysis["tags"],
+        quality=analysis["quality"],
     )
 
     photo_json = build_photo_json(
@@ -72,6 +97,7 @@ def _process_single_image(
         source=source,
         analysis=analysis,
         device_id=device_id,
+        location_coords=location_coords,
     )
 
     _write_json(output_path, dict(photo_json))
@@ -157,5 +183,7 @@ def process_folder(
 
     if stats.failed_files:
         logger.info("失败文件: %s", ", ".join(stats.failed_files))
+
+    apply_location_normalization(memory_path)
 
     return stats

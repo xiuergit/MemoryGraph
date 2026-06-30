@@ -59,13 +59,18 @@ export $(grep -v '^#' .env | xargs)
 # 3. 批量生成 JSON
 python tools/photo2json/main.py
 
-# 4. 启动 Mac Hub（供 iOS 上传）
+# 3b. 同步索引 + 问答（见 docs/operations.md）
+python tools/memory_index/main.py sync
+python tools/memory_ask/main.py "最近的照片"
+
+# 4. 启动 Mac Hub（可选，iOS 上传用）
 python hub/mac_server/main.py
 # 服务地址: http://0.0.0.0:8765
 ```
 
 ## 文档
 
+- **[回家操作手册](docs/operations.md)** — 执行流程、环境配置、命令速查、注意事项
 - [项目章程](docs/Project%20Charter.md) — 愿景与阶段目标
 - [架构说明](docs/architecture.md) — 双端分工、隐私边界、入库流程
 - [AGENTS.md](AGENTS.md) — AI 协作约束
