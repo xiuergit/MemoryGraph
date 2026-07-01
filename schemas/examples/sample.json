@@ -1,11 +1,12 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "photo_id": "IMG_0001",
   "timestamp": "2024-10-01T14:30:00",
   "device_id": "iphone",
   "people": [],
   "scene": "",
   "location": "",
+  "location_coords": "",
   "objects": [],
   "actions": [],
   "emotion": [],

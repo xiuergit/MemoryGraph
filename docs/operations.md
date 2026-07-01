@@ -162,7 +162,80 @@ python tools/photo2json/main.py --normalize-locations
 python tools/memory_index/main.py sync
 ```
 
-**耗时说明：** 每张图要跑 Ollama 视觉 + 人脸 +（可选）CLIP，几十秒到几分钟都正常，批量请耐心等。
+**耗时说明：** 全量模式每张图要跑 Ollama 视觉 + 人脸 +（可选）CLIP。可分两阶段，见下文「快出 JSON + 后续补全」。
+
+#### 推荐：先快出 JSON，再按需补 Ollama
+
+**第 1 阶段 — 全库快速出 JSON（不跑 Ollama，可选关 CLIP）：**
+
+```bash
+export OLLAMA_VISION_ENABLED=false
+export CLIP_ENABLED=false   # 可选，进一步加速
+python tools/photo2json/main.py
+python tools/memory_index/main.py sync
+```
+
+此时 JSON 里会有：`timestamp`、`location` / `location_coords`、人脸 `people` 等；`scene`、`tags` 为空。
+
+**第 2 阶段 — 只补 Ollama 视觉（已有 JSON 不会被整份重写）：**
+
+```bash
+export OLLAMA_VISION_ENABLED=true
+# 只补 scene/tags 还为空的照片
+python tools/photo2json/main.py --backfill vision
+
+# 只补「已识别到人物」的照片（推荐，省时间）
+python tools/photo2json/main.py --backfill vision --has-people
+
+# 强制重跑视觉（即使已有 scene）
+python tools/photo2json/main.py --backfill vision --refill
+
+python tools/memory_index/main.py sync
+```
+
+**其他补全：**
+
+```bash
+# 只补人脸/people（例如后来更新了人脸库）
+python tools/photo2json/main.py --backfill faces
+
+# 补全部 AI 字段（等同对选中 JSON 重跑 analyze_image）
+python tools/photo2json/main.py --backfill all --has-people
+```
+
+**哪些照片值得跑 Ollama？**
+
+| 类型 | 建议 |
+|------|------|
+| 有面面/家人（`people` 非空） | ✅ 优先 `--backfill vision --has-people` |
+| 纯风景、路人、文档截图 | ⏭ 可不跑，问答价值低 |
+| 连拍重复 | 可先快出 JSON，以后按时间去重再决定是否补 |
+
+默认 `--backfill` **只补空字段**（`scene/tags/objects` 都空才跑），中断后可反复执行，已补过的会跳过。
+
+**温和模式（保护电脑、分批跑 Ollama）：**
+
+风扇响是 Mac 正常散热，不会因此「烧坏」；但可持续跑很多天。建议：
+
+```bash
+# 每次只补 5 张有人脸的照片，每张间隔 15 秒，跑完就停
+export OLLAMA_VISION_ENABLED=true
+python tools/photo2json/main.py --backfill vision --has-people \
+  --limit 5 --sleep 15
+
+# 每 3 张额外休息 2 分钟（适合睡前跑几轮）
+python tools/photo2json/main.py --backfill vision --has-people \
+  --limit 9 --batch-size 3 --batch-rest 120 --sleep 10
+```
+
+同一命令**反复执行**即可续补：已成功的会跳过，永远从「还没 scene 的有效 JSON」接着跑。
+
+| 参数 | 作用 |
+|------|------|
+| `--has-people` | 只补 JSON 里已识别到人物/人脸的（推荐） |
+| `--limit 5` | 本次最多更新 5 张就停 |
+| `--sleep 15` | 每张之间歇 15 秒 |
+| `--batch-size 3 --batch-rest 120` | 每 3 张多歇 2 分钟 |
 
 ### 步骤 3：同步 SQLite 索引
 

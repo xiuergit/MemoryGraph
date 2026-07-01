@@ -2,6 +2,17 @@
 
 将原图放入 `photos/`，JSON 输出到 `memory/`。
 
+## 目录说明
+
+| 路径 | 说明 | 能否删了重建 |
+|------|------|--------------|
+| `photos/` | 原图 | ❌ 核心资产 |
+| `memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
+| `faces/` | 人脸参考照 + registry | ⚠️ 删了要重注册 |
+| `memorygraph.db` | SQLite 检索索引 | ✅ `memory_index sync` 重建 |
+| `.geocode_cache.json` | 高德逆地理缓存 | ✅ 可删，会重新请求 |
+| `cache/outfit/` | CLIP 当日穿搭向量 | ✅ 可删，会重新计算 |
+
 ## 衣着兜底（CLIP）
 
 同一天内：
@@ -35,3 +46,12 @@ python tools/photo2json/main.py
 export AMAP_KEY=你的Key   # 或写入项目根目录 .env
 python tools/photo2json/main.py --force
 ```
+
+同步索引与问答：
+
+```bash
+python tools/memory_index/main.py sync
+python tools/memory_ask/main.py "最近的照片"
+```
+
+详细流程见 [docs/operations.md](../docs/operations.md)。

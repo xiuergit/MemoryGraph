@@ -33,8 +33,8 @@ context:
 rules:
   - Use AGENTS.md and .continuerules as project conventions.
   - Read source files before editing; never guess file contents.
-  - Photo2JSON only: do not add SQLite, RAG, Agent, Graph, or Web.
-  - JSON Schema field names are fixed in photo2json/schema.py — do not rename or add fields.
-  - Only AI entry point: analyze_image() in photo2json/analyzer.py.
+  - Current scope: photo2json, backfill, memory_index, memory_ask. Do not add Web GUI, Event engine, or video/audio unless asked.
+  - JSON Schema field names are fixed in schemas/photo.v1.json — do not rename or add fields without a version bump.
+  - Only image AI entry point: analyze_image() in hub/shared/analyzer.py.
   - Keep changes minimal; one task at a time.
-  - Verify with: python photo2json/main.py
+  - Verify with: python tools/photo2json/main.py && python tools/memory_index/main.py sync
