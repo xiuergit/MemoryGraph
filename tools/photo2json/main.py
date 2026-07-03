@@ -13,7 +13,10 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from hub.shared.config import MEMORY_DIR, PHOTOS_DIR
-from hub.shared.location_cluster import apply_location_normalization
+from hub.shared.location_cluster import (
+    apply_location_normalization,
+    regeocode_locations_from_memory,
+)
 from hub.shared.backfill import backfill_folder
 from tools.photo2json.processor import process_folder
 
@@ -47,6 +50,16 @@ def main() -> int:
         help="仅按同日相邻照片统一 location，不跑 AI 分析",
     )
     parser.add_argument(
+        "--regeocode-locations",
+        action="store_true",
+        help="按 JSON 的 location_coords 重新逆地理并覆盖 location（不需原图）",
+    )
+    parser.add_argument(
+        "--no-normalize-after",
+        action="store_true",
+        help="与 --regeocode-locations 联用：重算后不跑同日地点归一",
+    )
+    parser.add_argument(
         "--backfill",
         choices=["vision", "faces", "all"],
         help="在已有 JSON 上增量补全：vision=Ollama 场景/tags，faces=人脸，all=全部 AI",
@@ -54,7 +67,7 @@ def main() -> int:
     parser.add_argument(
         "--has-people",
         action="store_true",
-        help="与 --backfill 联用：只处理 JSON 里已识别到人脸/人物的照片",
+        help="与 --backfill 联用：只处理 people 非空的照片（已匹配人脸库，不含仅检测到路人脸）",
     )
     parser.add_argument(
         "--refill",
@@ -92,6 +105,14 @@ def main() -> int:
     args = parser.parse_args()
 
     setup_logging()
+    if args.regeocode_locations:
+        stats = regeocode_locations_from_memory(
+            MEMORY_DIR,
+            limit=args.limit,
+            normalize_after=not args.no_normalize_after,
+        )
+        return 1 if stats.failed > 0 else 0
+
     if args.normalize_locations:
         changed = apply_location_normalization(MEMORY_DIR)
         return 0 if changed >= 0 else 1

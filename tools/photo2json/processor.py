@@ -76,7 +76,7 @@ def _process_single_image(
         timestamp=timestamp,
         photo_id=photo_id,
     )
-    analysis, location_coords = enrich_analysis_location(
+    analysis, location_coords, location_admin = enrich_analysis_location(
         analysis_from_dict(raw_analysis),
         image_path,
     )
@@ -98,6 +98,7 @@ def _process_single_image(
         analysis=analysis,
         device_id=device_id,
         location_coords=location_coords,
+        location_admin=location_admin,
     )
 
     _write_json(output_path, dict(photo_json))

@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from hub.shared.schema import location_admin_from_dict
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = """
@@ -72,6 +74,15 @@ def connect(db_path: Path) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
     _ensure_column(conn, "photos", "location_coords", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "location_province", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "location_city", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "location_district", "TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_location_province ON photos(location_province)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_location_city ON photos(location_city)"
+    )
     conn.commit()
 
 
@@ -85,6 +96,7 @@ def _photo_row(data: dict[str, Any], json_path: Path, json_mtime: float) -> tupl
     quality = data.get("quality") or {}
     source = data.get("source") or {}
     location_coords = str(data.get("location_coords", "")).strip()
+    admin = location_admin_from_dict(data.get("location_admin"))
     return (
         data["photo_id"],
         data.get("timestamp", ""),
@@ -92,6 +104,9 @@ def _photo_row(data: dict[str, Any], json_path: Path, json_mtime: float) -> tupl
         data.get("scene", ""),
         data.get("location", ""),
         location_coords,
+        admin["province"],
+        admin["city"],
+        admin["district"],
         source.get("path", ""),
         1 if quality.get("face_detected") else 0,
         str(json_path.resolve()),
@@ -137,14 +152,18 @@ def _upsert_photo(conn: sqlite3.Connection, data: dict[str, Any], json_path: Pat
         """
         INSERT INTO photos (
             photo_id, timestamp, device_id, scene, location, location_coords,
+            location_province, location_city, location_district,
             source_path, face_detected, json_path, json_mtime, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(photo_id) DO UPDATE SET
             timestamp = excluded.timestamp,
             device_id = excluded.device_id,
             scene = excluded.scene,
             location = excluded.location,
             location_coords = excluded.location_coords,
+            location_province = excluded.location_province,
+            location_city = excluded.location_city,
+            location_district = excluded.location_district,
             source_path = excluded.source_path,
             face_detected = excluded.face_detected,
             json_path = excluded.json_path,

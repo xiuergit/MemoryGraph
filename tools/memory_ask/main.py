@@ -27,7 +27,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="基于 memorygraph.db 回答简单记忆问题",
         epilog="示例：\n"
-        '  python tools/memory_ask/main.py "最近的照片"\n'
+        '  python tools/memory_ask/main.py "有多少张有表情"\n'
+        '  python tools/memory_ask/main.py "面面有多少张照片"\n'
+        '  python tools/memory_ask/main.py "面面4岁时在哪个地方待的时间最长"\n'
         '  python tools/memory_ask/main.py "面面几岁了"\n'
         '  python tools/memory_ask/main.py "面面最近在哪里玩"',
         formatter_class=argparse.RawDescriptionHelpFormatter,

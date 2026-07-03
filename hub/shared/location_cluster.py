@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from hub.shared.config import JSON_INDENT, MEMORY_DIR
-from hub.shared.geocode import resolve_location
+from hub.shared.geocode import is_acceptable_location, resolve_location, resolve_location_geocode
 from hub.shared.utils import extract_exif_location
 
 logger = logging.getLogger(__name__)
@@ -76,23 +76,21 @@ def _haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def _location_quality_score(name: str) -> int:
-    """地名越像「去哪玩」的地标，分数越高。"""
+    """地名越长越完整，分数越高（不再偏好两字截断）。"""
     text = name.strip()
-    if not text or _looks_like_coords(text):
-        return 0
+    if not text or _looks_like_coords(text) or not is_acceptable_location(text):
+        return -100
 
-    score = 0
-    if text.endswith(("园", "山", "湖", "馆", "寺", "塔")):
-        score += 20
-    if len(text) <= 4:
-        score += 10
-    elif len(text) >= 8:
-        score -= 5
+    score = min(len(text), 20)
+    if text.endswith(("公园", "森林公园", "动物园", "植物园")):
+        score += 12
+    elif text.endswith(("园", "山", "湖", "馆", "寺", "塔")):
+        score += 8
 
-    if any(keyword in text for keyword in ("街", "路", "号", "社区", "小区", "工作站")):
-        score -= 8
-    if any(keyword in text for keyword in ("停车", "诊所", "镇", "乡")):
-        score -= 6
+    if any(keyword in text for keyword in ("停车", "诊所", "工作站", "卫生间")):
+        score -= 20
+    if any(keyword in text for keyword in ("街", "路", "号", "社区", "小区")):
+        score -= 4
     return score
 
 
@@ -100,13 +98,15 @@ def _pick_cluster_location(locations: list[str]) -> str:
     if not locations:
         return ""
 
-    counts = Counter(loc.strip() for loc in locations if loc.strip())
+    good = [loc.strip() for loc in locations if loc.strip() and is_acceptable_location(loc.strip())]
+    pool = good if good else [loc.strip() for loc in locations if loc.strip()]
+    counts = Counter(pool)
     if not counts:
         return ""
 
     ranked = sorted(
         counts.items(),
-        key=lambda item: (_location_quality_score(item[0]), item[1], -len(item[0])),
+        key=lambda item: (_location_quality_score(item[0]), item[1], len(item[0])),
         reverse=True,
     )
     return ranked[0][0]
@@ -176,6 +176,108 @@ def _normalize_records(records: list[PhotoLocationRecord]) -> dict[str, str]:
                 if record.location != chosen:
                     updates[record.photo_id] = chosen
     return updates
+
+
+@dataclass
+class RegeocodeStats:
+    total: int = 0
+    updated: int = 0
+    skipped: int = 0
+    failed: int = 0
+    no_coords: int = 0
+
+
+def regeocode_locations_from_memory(
+    memory_dir: Path | None = None,
+    *,
+    limit: int | None = None,
+    normalize_after: bool = True,
+) -> RegeocodeStats:
+    """按 JSON 里的 location_coords 重新逆地理，覆盖 location（不读原图）。"""
+    memory_path = Path(memory_dir or MEMORY_DIR)
+    stats = RegeocodeStats()
+
+    if not memory_path.is_dir():
+        logger.warning("memory 目录不存在: %s", memory_path)
+        return stats
+
+    json_files = sorted(memory_path.glob("*.json"))
+    stats.total = len(json_files)
+
+    for json_path in json_files:
+        if limit is not None and stats.updated >= limit:
+            logger.info("已达本次上限 %d 条，停止。下次再跑即可续补。", limit)
+            break
+
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            stats.failed += 1
+            logger.warning("读取 JSON 失败 %s: %s", json_path.name, exc)
+            continue
+
+        if data.get("manual_edit"):
+            stats.skipped += 1
+            continue
+
+        coords_str = str(data.get("location_coords", "")).strip()
+        coords = _parse_coords(coords_str)
+        if coords is None:
+            stats.no_coords += 1
+            continue
+
+        coords_key = f"{coords[0]:.6f},{coords[1]:.6f}"
+        try:
+            geocode = resolve_location_geocode(coords_key)
+            new_location = geocode.location.strip()
+            new_admin = geocode.location_admin
+        except Exception as exc:
+            stats.failed += 1
+            logger.warning("逆地理失败 %s: %s", json_path.stem, exc)
+            continue
+
+        if not new_location or _looks_like_coords(new_location):
+            stats.failed += 1
+            logger.warning("逆地理无结果 %s", json_path.stem)
+            continue
+
+        if not is_acceptable_location(new_location):
+            stats.failed += 1
+            logger.warning("逆地理地名不理想 %s: %s", json_path.stem, new_location)
+            continue
+
+        old_location = str(data.get("location", "")).strip()
+        old_admin = data.get("location_admin") or {}
+        needs_admin = not str(old_admin.get("province", "")).strip()
+        if (
+            old_location == new_location
+            and is_acceptable_location(old_location)
+            and not needs_admin
+        ):
+            stats.skipped += 1
+            continue
+
+        data["location"] = new_location
+        data["location_admin"] = dict(new_admin)
+        json_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=JSON_INDENT) + "\n",
+            encoding="utf-8",
+        )
+        stats.updated += 1
+        logger.info("重算地点: %s  %s → %s", json_path.stem, old_location or "(空)", new_location)
+
+    if normalize_after and stats.updated > 0:
+        apply_location_normalization(memory_path)
+
+    logger.info(
+        "逆地理重算: 扫描=%d, 更新=%d, 跳过=%d, 无坐标=%d, 失败=%d",
+        stats.total,
+        stats.updated,
+        stats.skipped,
+        stats.no_coords,
+        stats.failed,
+    )
+    return stats
 
 
 def collect_location_records(memory_dir: Path) -> list[PhotoLocationRecord]:

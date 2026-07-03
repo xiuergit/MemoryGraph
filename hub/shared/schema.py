@@ -39,6 +39,34 @@ class Source(TypedDict):
     height: int
 
 
+class LocationAdmin(TypedDict):
+    province: str
+    city: str
+    district: str
+    formatted_address: str
+
+
+def empty_location_admin() -> LocationAdmin:
+    return LocationAdmin(
+        province="",
+        city="",
+        district="",
+        formatted_address="",
+    )
+
+
+def location_admin_from_dict(raw: dict[str, Any] | None) -> LocationAdmin:
+    base = empty_location_admin()
+    if not raw:
+        return base
+    return LocationAdmin(
+        province=str(raw.get("province", "")),
+        city=str(raw.get("city", "")),
+        district=str(raw.get("district", "")),
+        formatted_address=str(raw.get("formatted_address", "")),
+    )
+
+
 class PhotoJson(TypedDict, total=False):
     schema_version: str
     photo_id: str
@@ -48,6 +76,7 @@ class PhotoJson(TypedDict, total=False):
     scene: str
     location: str
     location_coords: str
+    location_admin: LocationAdmin
     objects: list[str]
     actions: list[str]
     emotion: list[str]
@@ -91,8 +120,10 @@ def build_photo_json(
     *,
     device_id: str = "",
     location_coords: str = "",
+    location_admin: LocationAdmin | None = None,
 ) -> PhotoJson:
     """将元数据与 AI 分析结果合并为完整 JSON 对象。"""
+    admin = location_admin if location_admin is not None else empty_location_admin()
     return PhotoJson(
         schema_version=SCHEMA_VERSION,
         photo_id=photo_id,
@@ -102,6 +133,7 @@ def build_photo_json(
         scene=analysis["scene"],
         location=analysis["location"],
         location_coords=location_coords,
+        location_admin=admin,
         objects=analysis["objects"],
         actions=analysis["actions"],
         emotion=analysis["emotion"],

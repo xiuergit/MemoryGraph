@@ -6,18 +6,21 @@
 faces/
 ├── registry.json       # 可选：id → 中文名（可从 registry.example.json 复制）
 ├── index.json          # 自动生成，勿手改（python tools/face_enroll/main.py）
-├── baby/               # 宝宝参考照 3～10 张
+├── baby/               # 宝宝参考照 10～20 张，直接放此目录
 │   ├── ref_01.jpg
 │   └── ref_02.heic
 ├── mom/
 └── dad/
 ```
 
+每人一个文件夹即可。宝宝长得快，**关键是参考照要覆盖不同年龄段**（婴儿、1～2 岁、近照各几张），不是文件夹要分多细。
+
 ## 参考照要求
 
 - 正脸、清晰、脸部占画面一定比例
 - 尽量单人照；合照也可，会取最大的一张脸
 - 支持 `.jpg` `.jpeg` `.png` `.heic` `.heif`
+- 每人 10～20 张够用，不必把相册全塞进来
 
 ## registry.json 格式
 

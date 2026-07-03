@@ -74,6 +74,18 @@
       "type": "string",
       "description": "EXIF GPS 原始坐标，格式 '纬度,经度'；无 GPS 则为空字符串"
     },
+    "location_admin": {
+      "type": "object",
+      "description": "逆地理行政区划与完整地址；无 GPS 时各字段为空字符串",
+      "properties": {
+        "province": { "type": "string", "description": "省，如 上海市、江苏省" },
+        "city": { "type": "string", "description": "市" },
+        "district": { "type": "string", "description": "区/县" },
+        "formatted_address": { "type": "string", "description": "高德 formatted_address 原文" }
+      },
+      "required": ["province", "city", "district", "formatted_address"],
+      "additionalProperties": false
+    },
     "objects": {
       "type": "array",
       "items": { "type": "string" }

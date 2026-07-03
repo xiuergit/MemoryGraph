@@ -80,7 +80,7 @@ async def import_photo(
         timestamp=timestamp,
         photo_id=photo_id,
     )
-    analysis, location_coords = enrich_analysis_location(analysis_from_dict(raw), dest_photo)
+    analysis, location_coords, location_admin = enrich_analysis_location(analysis_from_dict(raw), dest_photo)
     analysis = AnalysisResult(
         people=enrich_people_with_age(analysis["people"], timestamp),
         scene=analysis["scene"],
@@ -100,6 +100,7 @@ async def import_photo(
         analysis=analysis,
         device_id=device,
         location_coords=location_coords,
+        location_admin=location_admin,
     )
 
     memory_path = MEMORY_DIR / f"{photo_id}.json"

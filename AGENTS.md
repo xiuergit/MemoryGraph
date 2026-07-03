@@ -98,6 +98,7 @@ Python 实现：`hub/shared/schema.py`
 | `device_id` | 来源设备，如 `iphone` / `mac` |
 | `location` | 可读地名（逆地理 + 同日归一） |
 | `location_coords` | EXIF GPS 原始坐标 `"纬度,经度"`，不覆盖 |
+| `location_admin` | 可选；`province` / `city` / `district` / `formatted_address`（逆地理原文） |
 | `source` | 真实 path / width / height |
 | `people`, `scene`, `objects`, `actions`, `emotion`, `tags`, `quality` | 由 `analyze_image()` 等返回 |
 | `manual_edit` | 可选；为 `true` 时批处理/backfill 不覆盖 |

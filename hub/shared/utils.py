@@ -9,8 +9,8 @@ from pathlib import Path
 from PIL import Image, ExifTags
 
 from hub.shared.config import SUPPORTED_EXTENSIONS
-from hub.shared.geocode import resolve_location
-from hub.shared.schema import AnalysisResult, Source
+from hub.shared.geocode import resolve_location_geocode
+from hub.shared.schema import AnalysisResult, LocationAdmin, empty_location_admin, Source
 
 logger = logging.getLogger(__name__)
 
@@ -137,15 +137,16 @@ def extract_exif_location(image_path: Path) -> str:
 def enrich_analysis_location(
     analysis: AnalysisResult,
     image_path: Path,
-) -> tuple[AnalysisResult, str]:
-    """用 EXIF GPS 填充 location（可读地名）与 location_coords（原始坐标）。"""
+) -> tuple[AnalysisResult, str, LocationAdmin]:
+    """用 EXIF GPS 填充 location、location_coords、location_admin。"""
     exif_coords = extract_exif_location(image_path)
     if not exif_coords:
-        return analysis, ""
+        return analysis, "", empty_location_admin()
 
+    geocode = resolve_location_geocode(exif_coords)
     enriched = dict(analysis)
-    enriched["location"] = resolve_location(exif_coords)
-    return AnalysisResult(**enriched), exif_coords
+    enriched["location"] = geocode.location
+    return AnalysisResult(**enriched), exif_coords, geocode.location_admin
 
 
 def get_image_dimensions(image_path: Path) -> tuple[int, int]:

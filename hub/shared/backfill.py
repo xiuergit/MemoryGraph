@@ -52,11 +52,8 @@ def _should_process(
     if data.get("manual_edit"):
         return False
 
-    if has_people:
-        people = data.get("people") or []
-        face = (data.get("quality") or {}).get("face_detected", False)
-        if not people and not face:
-            return False
+    if has_people and not (data.get("people") or []):
+        return False
 
     if not only_empty:
         return True
@@ -163,7 +160,7 @@ def backfill_json_file(
                     timestamp=timestamp,
                     photo_id=photo_id,
                 )
-                analysis, location_coords = enrich_analysis_location(
+                analysis, location_coords, location_admin = enrich_analysis_location(
                     analysis_from_dict(raw),
                     image_path,
                 )
@@ -187,6 +184,7 @@ def backfill_json_file(
                 data["quality"] = analysis["quality"]
                 if location_coords:
                     data["location_coords"] = location_coords
+                    data["location_admin"] = dict(location_admin)
         elif mode == "faces":
             _merge_faces(
                 data,

@@ -140,14 +140,19 @@ def face_index_available() -> bool:
 
 
 def iter_reference_images(person_dir: Path) -> list[Path]:
-    """列出某人参考照目录下的图片。"""
+    """列出某人参考照目录下的图片（含子目录，便于按年龄段分组）。"""
     if not person_dir.is_dir():
         return []
-    files = [
-        p
-        for p in sorted(person_dir.iterdir())
-        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-    ]
+    files: list[Path] = []
+    for path in sorted(person_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        rel_parts = path.relative_to(person_dir).parts
+        if any(part.startswith(".") for part in rel_parts):
+            continue
+        files.append(path)
     return files
 
 
@@ -179,10 +184,56 @@ def extract_face_embedding(image_path: Path, *, largest_only: bool = True) -> li
     return [f.embedding.astype(float).tolist() for f in faces]
 
 
+def load_face_aliases(registry_file: Path | None = None) -> dict[str, str]:
+    """读取参考照目录 id → 合并到的 canonical person_id（registry 里 alias 字段）。"""
+    from hub.shared.family import load_family_members
+
+    path = registry_file or FACE_REGISTRY_FILE
+    members = load_family_members(path)
+    aliases: dict[str, str] = {}
+    if not path.exists():
+        return aliases
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return aliases
+
+    if not isinstance(data, dict):
+        return aliases
+
+    for dir_id, raw in data.items():
+        if not isinstance(raw, dict):
+            continue
+        alias = str(raw.get("alias", "")).strip()
+        if alias and alias in members:
+            aliases[str(dir_id)] = alias
+    return aliases
+
+
+def _collect_reference_samples(person_dir: Path) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for image_path in iter_reference_images(person_dir):
+        embeddings = extract_face_embedding(image_path, largest_only=True)
+        if not embeddings:
+            logger.warning("参考照未检测到人脸，已跳过: %s", image_path)
+            continue
+        rel_file = str(image_path.relative_to(person_dir))
+        samples.append(
+            {
+                "file": rel_file,
+                "embedding": embeddings[0],
+            }
+        )
+    return samples
+
+
 def build_face_index(faces_dir: Path | None = None) -> dict[str, Any]:
     """扫描 data/faces/{person_id}/ 参考照，生成 index 数据。"""
     root = faces_dir or FACES_DIR
-    registry = load_registry(root / "registry.json")
+    registry_path = root / "registry.json"
+    registry = load_registry(registry_path)
+    aliases = load_face_aliases(registry_path)
     people: dict[str, Any] = {}
 
     if not root.is_dir():
@@ -192,30 +243,39 @@ def build_face_index(faces_dir: Path | None = None) -> dict[str, Any]:
         if not person_dir.is_dir() or person_dir.name.startswith("."):
             continue
 
-        person_id = person_dir.name
-        display_name = registry.get(person_id, person_id)
-        samples: list[dict[str, Any]] = []
+        dir_id = person_dir.name
+        person_id = aliases.get(dir_id, dir_id)
+        display_name = registry.get(person_id, registry.get(dir_id, person_id))
+        samples = _collect_reference_samples(person_dir)
 
-        for image_path in iter_reference_images(person_dir):
-            embeddings = extract_face_embedding(image_path, largest_only=True)
-            if not embeddings:
-                logger.warning("参考照未检测到人脸，已跳过: %s", image_path)
-                continue
-            samples.append(
-                {
-                    "file": image_path.name,
-                    "embedding": embeddings[0],
-                }
+        if not samples:
+            logger.warning("目录无有效参考照: %s", person_dir)
+            continue
+
+        if person_id in people:
+            people[person_id]["samples"].extend(samples)
+            logger.info(
+                "已合并 %s → %s (%s): +%d 张参考照",
+                dir_id,
+                person_id,
+                display_name,
+                len(samples),
             )
-
-        if samples:
+        else:
             people[person_id] = {
                 "name": display_name,
                 "samples": samples,
             }
-            logger.info("已注册 %s (%s): %d 张参考照", person_id, display_name, len(samples))
-        else:
-            logger.warning("目录无有效参考照: %s", person_dir)
+            if dir_id == person_id:
+                logger.info("已注册 %s (%s): %d 张参考照", person_id, display_name, len(samples))
+            else:
+                logger.info(
+                    "已注册 %s → %s (%s): %d 张参考照",
+                    dir_id,
+                    person_id,
+                    display_name,
+                    len(samples),
+                )
 
     return {
         "version": "1.0",

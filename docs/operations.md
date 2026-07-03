@@ -91,7 +91,7 @@ ollama pull qwen2.5:7b
 ### 4. 人脸库（首次或换参考照时）
 
 ```bash
-# 参考照目录：data/faces/baby/ 等，放 1～3 张清晰正脸
+# 参考照目录：data/faces/baby/ 等，每人 10～20 张清晰正脸
 cp data/faces/registry.example.json data/faces/registry.json
 # 编辑 registry.json：姓名、birth_date、role
 
@@ -161,6 +161,20 @@ python tools/photo2json/main.py --force
 python tools/photo2json/main.py --normalize-locations
 python tools/memory_index/main.py sync
 ```
+
+**地点名不合理时（不需原图）**：按 JSON 里的 `location_coords` 重新调高德，写回 `location` 与 `location_admin`（省/市/区/完整地址）：
+
+```bash
+# 先试 5 条
+python tools/photo2json/main.py --regeocode-locations --limit 5
+
+# 全库重算（约 7k+ 有坐标，需 AMAP_KEY + 网络；缓存版本升级后会重新请求）
+python tools/photo2json/main.py --regeocode-locations
+
+python tools/memory_index/main.py sync
+```
+
+`location_coords` 不变；已有 `location` 但缺 `location_admin` 的也会补全；`manual_edit: true` 的 JSON 会跳过。
 
 **耗时说明：** 全量模式每张图要跑 Ollama 视觉 + 人脸 +（可选）CLIP。可分两阶段，见下文「快出 JSON + 后续补全」。
 
@@ -255,8 +269,13 @@ python tools/memory_index/main.py timeline --limit 10
 
 ### 步骤 4：问答
 
+支持的自然语言意图（路由规则、示例、数据依赖）见 **[agent-intents.md](agent-intents.md)**。
+
 ```bash
-python tools/memory_ask/main.py "最近的照片"
+python tools/memory_ask/main.py "一共多少张照片"
+python tools/memory_ask/main.py "表情里没有哭吗"
+python tools/memory_ask/main.py "第一次哭是什么时候"
+python tools/memory_ask/main.py "面面4岁时在哪个地方待的时间最长"
 python tools/memory_ask/main.py "面面几岁了"
 python tools/memory_ask/main.py "面面最近在哪里玩"
 ```
@@ -371,10 +390,10 @@ python tools/photo2json/main.py --force
 python tools/memory_index/main.py sync
 python tools/memory_index/main.py stats
 
-# 问答
-python tools/memory_ask/main.py "最近的照片"
+# 问答（意图说明见 docs/agent-intents.md）
+python tools/memory_ask/main.py "有多少张有表情的"
 python tools/memory_ask/main.py "面面几岁了"
-python tools/memory_ask/main.py "面面最近在哪里玩"
+python tools/memory_ask/main.py "第一次哭是什么时候"
 ```
 
 ---

@@ -72,6 +72,9 @@ def load_family_members(registry_file: Path | None = None) -> dict[str, FamilyMe
             continue
         if not isinstance(raw, dict):
             continue
+        # alias 条目仅用于人脸参考照目录合并，不参与家庭成员档案
+        if str(raw.get("alias", "")).strip():
+            continue
         members[pid] = FamilyMember(
             person_id=pid,
             name=str(raw.get("name", pid)),

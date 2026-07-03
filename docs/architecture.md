@@ -97,7 +97,7 @@ data/
 | `hub/shared/backfill.py` | 增量补全 vision / faces |
 | `hub/shared/index_db.py` | SQLite 同步与查询 |
 | `hub/shared/query.py` | 问答事实收集 |
-| `hub/shared/agent.py` | 问答 Agent（Ollama 润色 + 模板兜底） |
+| `hub/shared/agent.py` | 问答 Agent（规则路由 + Ollama 润色 + 模板兜底），意图见 [agent-intents.md](agent-intents.md) |
 | `hub/shared/utils.py` | EXIF、尺寸、格式过滤 |
 | `tools/photo2json/` | Mac 批量处理与 backfill |
 | `tools/face_enroll/` | 人脸库注册 |
@@ -114,7 +114,7 @@ data/
 | **1** | 本地视觉 + 人脸识别 | ✅ Ollama + InsightFace + CLIP |
 | **2** | iOS 上传 / 日常同步 | ⏸ 骨架有；当前用「导出到 Mac」 |
 | **3** | 记忆库索引与检索 | ⚠️ SQLite + CLI 搜索/问答已有；Web 时间线未做 |
-| **4+** | Event 聚合、语音/Web | 🔜 Event 未做；CLI Agent 已有基础版 |
+| **4+** | Event 聚合、语音/Web | 🔜 Event 未做；CLI Agent 规则意图见 [agent-intents.md](agent-intents.md) |
 
 日常操作详见 [operations.md](operations.md)。
 
