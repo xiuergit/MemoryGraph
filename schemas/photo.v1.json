@@ -118,6 +118,22 @@
         "width": { "type": "integer", "minimum": 0 },
         "height": { "type": "integer", "minimum": 0 }
       }
+    },
+    "manual_edit": {
+      "type": "boolean",
+      "description": "兼容字段：任一 manual_* 为 true 时可同步为 true；跳过逻辑以分项为准"
+    },
+    "manual_location": {
+      "type": "boolean",
+      "description": "手改地址；regeocode / 地址归一跳过"
+    },
+    "manual_people": {
+      "type": "boolean",
+      "description": "手改人物；faces backfill 跳过"
+    },
+    "manual_vision": {
+      "type": "boolean",
+      "description": "手改场景/物体等；vision backfill 跳过"
     }
   },
   "additionalProperties": false

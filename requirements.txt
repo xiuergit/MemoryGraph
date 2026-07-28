@@ -10,3 +10,4 @@ insightface>=0.7.3
 open-clip-torch>=2.24.0
 torch>=2.0.0
 torchvision>=0.15.0
+jsonschema>=4.21.0

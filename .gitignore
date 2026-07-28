@@ -12,11 +12,12 @@ data/photos/*
 !data/photos/.gitkeep
 data/memory/*
 !data/memory/.gitkeep
+data/.trash/
 data/.geocode_cache.json
 data/cache/**
 data/*.db
 
-# 人脸库（参考照与索引不进 git）
+人脸库（参考照与索引不进 git）
 data/faces/**/*
 !data/faces/README.md
 !data/faces/registry.example.json

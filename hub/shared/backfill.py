@@ -14,8 +14,14 @@ from hub.shared.config import JSON_INDENT, MEMORY_DIR, PHOTOS_DIR
 from hub.shared.face import scan_faces
 from hub.shared.family import enrich_people_with_age
 from hub.shared.outfit import apply_outfit_fallback
-from hub.shared.schema import AnalysisResult, analysis_from_dict
-from hub.shared.utils import enrich_analysis_location, extract_exif_timestamp
+from hub.shared.schema import (
+    AnalysisResult,
+    analysis_from_dict,
+    is_manual_location,
+    is_manual_people,
+    is_manual_vision,
+)
+from hub.shared.utils import enrich_analysis_location, extract_exif_timestamp, json_matches_year
 from hub.shared.vision import analyze_image_ollama
 
 logger = logging.getLogger(__name__)
@@ -48,9 +54,29 @@ def _should_process(
     mode: BackfillMode,
     only_empty: bool,
     has_people: bool,
+    needs_faces: bool = False,
 ) -> bool:
-    if data.get("manual_edit"):
+    # 分项锁：legacy manual_edit 在迁移前仍视为全锁
+    legacy_lock = bool(data.get("manual_edit")) and not (
+        data.get("manual_people") or data.get("manual_vision") or data.get("manual_location")
+    )
+    if legacy_lock:
         return False
+
+    if needs_faces or mode == "faces":
+        if is_manual_people(data):
+            return False
+    if mode == "vision":
+        if is_manual_vision(data):
+            return False
+    if mode == "all":
+        if is_manual_people(data) and is_manual_vision(data):
+            return False
+
+    if needs_faces:
+        if not (data.get("quality") or {}).get("face_detected"):
+            return False
+        return not (data.get("people") or [])
 
     if has_people and not (data.get("people") or []):
         return False
@@ -62,7 +88,10 @@ def _should_process(
         return _vision_is_empty(data)
     if mode == "faces":
         return not (data.get("people") or [])
-    return _vision_is_empty(data) or not (data.get("people") or [])
+    # all
+    need_vision = (not is_manual_vision(data)) and _vision_is_empty(data)
+    need_faces = (not is_manual_people(data)) and not (data.get("people") or [])
+    return need_vision or need_faces
 
 
 def _resolve_image_path(data: dict, photos_dir: Path) -> Path | None:
@@ -130,6 +159,7 @@ def backfill_json_file(
     photos_dir: Path,
     only_empty: bool = True,
     has_people: bool = False,
+    needs_faces: bool = False,
 ) -> str:
     """补全单个 JSON。返回 updated | skipped | failed。"""
     try:
@@ -138,7 +168,13 @@ def backfill_json_file(
         logger.warning("读取失败 %s: %s", json_path.name, exc)
         return "failed"
 
-    if not _should_process(data, mode=mode, only_empty=only_empty, has_people=has_people):
+    if not _should_process(
+        data,
+        mode=mode,
+        only_empty=only_empty,
+        has_people=has_people,
+        needs_faces=needs_faces,
+    ):
         return "skipped"
 
     image_path = _resolve_image_path(data, photos_dir)
@@ -150,11 +186,30 @@ def backfill_json_file(
     timestamp = str(data.get("timestamp") or extract_exif_timestamp(image_path))
 
     try:
-        if mode in ("vision", "all"):
+        if mode == "vision":
+            if is_manual_vision(data):
+                return "skipped"
             vision = analyze_image_ollama(image_path)
-            if mode == "vision":
-                _merge_vision(data, vision)
-            else:
+            _merge_vision(data, vision)
+            if _vision_is_empty(data):
+                logger.warning("vision 补全后仍为空，视为失败: %s", photo_id)
+                return "failed"
+        elif mode == "faces":
+            if is_manual_people(data):
+                return "skipped"
+            _merge_faces(
+                data,
+                image_path=image_path,
+                timestamp=timestamp,
+                photo_id=photo_id,
+            )
+        elif mode == "all":
+            # 分项写入，避免覆盖已手改的地址/人物/场景
+            do_vision = not is_manual_vision(data)
+            do_faces = not is_manual_people(data)
+            if not do_vision and not do_faces:
+                return "skipped"
+            if do_vision and do_faces and not is_manual_location(data):
                 raw = analyze_image(
                     str(image_path),
                     timestamp=timestamp,
@@ -176,22 +231,26 @@ def backfill_json_file(
                 )
                 data["people"] = analysis["people"]
                 data["scene"] = analysis["scene"]
-                data["location"] = analysis["location"]
                 data["objects"] = analysis["objects"]
                 data["actions"] = analysis["actions"]
                 data["emotion"] = analysis["emotion"]
                 data["tags"] = analysis["tags"]
                 data["quality"] = analysis["quality"]
+                data["location"] = analysis["location"]
                 if location_coords:
                     data["location_coords"] = location_coords
                     data["location_admin"] = dict(location_admin)
-        elif mode == "faces":
-            _merge_faces(
-                data,
-                image_path=image_path,
-                timestamp=timestamp,
-                photo_id=photo_id,
-            )
+            else:
+                if do_vision:
+                    vision = analyze_image_ollama(image_path)
+                    _merge_vision(data, vision)
+                if do_faces:
+                    _merge_faces(
+                        data,
+                        image_path=image_path,
+                        timestamp=timestamp,
+                        photo_id=photo_id,
+                    )
     except Exception as exc:
         logger.error("补全失败 %s: %s", photo_id, exc)
         return "failed"
@@ -203,6 +262,34 @@ def backfill_json_file(
     return "updated"
 
 
+def _list_backfill_candidates(
+    json_files: list[Path],
+    *,
+    mode: BackfillMode,
+    only_empty: bool,
+    has_people: bool,
+    needs_faces: bool,
+    year: str = "",
+) -> list[Path]:
+    candidates: list[Path] = []
+    for json_path in json_files:
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if year and not json_matches_year(data, json_path, year):
+            continue
+        if _should_process(
+            data,
+            mode=mode,
+            only_empty=only_empty,
+            has_people=has_people,
+            needs_faces=needs_faces,
+        ):
+            candidates.append(json_path)
+    return candidates
+
+
 def backfill_folder(
     memory_dir: Path | None = None,
     photos_dir: Path | None = None,
@@ -210,16 +297,21 @@ def backfill_folder(
     mode: BackfillMode = "vision",
     only_empty: bool = True,
     has_people: bool = False,
+    needs_faces: bool = False,
     limit: int | None = None,
     sleep_sec: float = 0.0,
     batch_size: int = 0,
     batch_rest_sec: float = 0.0,
+    year: str = "",
+    resume: bool = False,
 ) -> BackfillStats:
     """遍历 memory/*.json，增量补全指定字段。
 
     limit: 本次最多成功更新几张（适合 Ollama 分批、歇机）
     sleep_sec: 每更新一张后暂停秒数
     batch_size / batch_rest_sec: 每更新 batch_size 张后额外休息
+    year: 只处理某年的 JSON（timestamp / photos/2025/ / 文件名前缀）
+    resume: 续跑模式，跳过已有内容（等同 only_empty=True，与 --refill 互斥）
     """
     memory_path = Path(memory_dir or MEMORY_DIR)
     photos_path = Path(photos_dir or PHOTOS_DIR)
@@ -230,7 +322,26 @@ def backfill_folder(
         return stats
 
     json_files = sorted(memory_path.glob("*.json"))
+    if resume or needs_faces or has_people or only_empty or year:
+        json_files = _list_backfill_candidates(
+            json_files,
+            mode=mode,
+            only_empty=only_empty,
+            has_people=has_people,
+            needs_faces=needs_faces,
+            year=year,
+        )
     stats.total = len(json_files)
+    if resume and mode in ("vision", "all"):
+        logger.info(
+            "续跑模式：待补 %d 张%s（已有 scene/tags 的会自动跳过）",
+            stats.total,
+            f"（{year} 年）" if year else "",
+        )
+    elif year:
+        logger.info("年份过滤 %s：待处理 %d 张", year, stats.total)
+    if needs_faces:
+        logger.info("待补人脸: %d 张（face_detected 且 people 为空）", stats.total)
 
     for json_path in json_files:
         if limit is not None and stats.updated >= limit:
@@ -243,6 +354,7 @@ def backfill_folder(
             photos_dir=photos_path,
             only_empty=only_empty,
             has_people=has_people,
+            needs_faces=needs_faces,
         )
         if result == "updated":
             stats.updated += 1

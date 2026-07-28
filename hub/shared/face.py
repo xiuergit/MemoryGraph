@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from hub.shared.config import (
+    FACE_DET_SCORE_MIN,
     FACE_INDEX_FILE,
     FACE_MATCH_THRESHOLD,
     FACE_REGISTRY_FILE,
@@ -158,30 +159,123 @@ def iter_reference_images(person_dir: Path) -> list[Path]:
 
 def extract_face_embedding(image_path: Path, *, largest_only: bool = True) -> list[list[float]]:
     """从图片提取人脸 embedding；参考照默认只取最大的一张脸。"""
+    faces = detect_faces(image_path)
+    if not faces:
+        return []
+    if largest_only:
+        face = _largest_face_dict(faces)
+        if face is None:
+            return []
+        return [face["embedding"]]
+    return [f["embedding"] for f in faces]
+
+
+def detect_faces(image_path: str | Path, *, max_side: int = 0) -> list[dict[str, Any]]:
+    """检测图片中所有人脸，返回 bbox + embedding 列表。
+
+    max_side>0 时先缩小长边再检测（省内存/加速），bbox 仍映射回原图坐标。
+    """
     app = _get_face_app()
     if app is None:
         return []
 
-    bgr = _load_image_bgr(image_path)
+    path = Path(image_path)
+    bgr = _load_image_bgr(path)
     if bgr is None:
         return []
+
+    scale = 1.0
+    if max_side > 0:
+        try:
+            import cv2
+        except ImportError:
+            cv2 = None  # type: ignore[assignment]
+        img_h, img_w = bgr.shape[:2]
+        long_side = max(img_h, img_w)
+        if cv2 is not None and long_side > max_side:
+            scale = max_side / long_side
+            new_w = max(1, int(img_w * scale))
+            new_h = max(1, int(img_h * scale))
+            bgr = cv2.resize(bgr, (new_w, new_h))
 
     try:
         faces = app.get(bgr)
     except Exception as exc:
-        logger.warning("人脸检测失败 %s: %s", image_path, exc)
+        logger.warning("人脸检测失败 %s: %s", path, exc)
         return []
+    finally:
+        del bgr
 
     if not faces:
         return []
 
-    if largest_only:
-        face = _largest_face(faces)
-        if face is None:
-            return []
-        return [face.embedding.astype(float).tolist()]
+    inv_scale = 1.0 / scale if scale != 1.0 else 1.0
+    min_score = FACE_DET_SCORE_MIN
+    results: list[dict[str, Any]] = []
+    for face in faces:
+        det_score = float(getattr(face, "det_score", 0.0) or 0.0)
+        if det_score < min_score:
+            continue
+        bbox = tuple(float(v) * inv_scale for v in face.bbox)
+        results.append(
+            {
+                "bbox": bbox,
+                "embedding": face.embedding.astype(float).tolist(),
+                "det_score": det_score,
+            }
+        )
+    return results
 
-    return [f.embedding.astype(float).tolist() for f in faces]
+
+def _largest_face_dict(faces: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not faces:
+        return None
+    return max(
+        faces,
+        key=lambda f: (f["bbox"][2] - f["bbox"][0]) * (f["bbox"][3] - f["bbox"][1]),
+    )
+
+
+def save_face_crop(
+    image_path: str | Path,
+    bbox: tuple[float, float, float, float],
+    output_path: str | Path,
+    *,
+    padding: float = 0.5,
+) -> bool:
+    """裁剪人脸区域保存为参考照。
+
+    padding: 相对人脸框宽高的外扩比例（0.5 ≈ 四周各扩半个脸宽）。
+    """
+    try:
+        import cv2
+    except ImportError:
+        logger.warning("未安装 opencv-python-headless，无法裁剪人脸")
+        return False
+
+    path = Path(image_path)
+    bgr = _load_image_bgr(path)
+    if bgr is None:
+        return False
+
+    x1, y1, x2, y2 = bbox
+    w = max(x2 - x1, 1.0)
+    h = max(y2 - y1, 1.0)
+    img_h, img_w = bgr.shape[:2]
+    nx1 = max(0, int(x1 - padding * w))
+    ny1 = max(0, int(y1 - padding * h))
+    nx2 = min(img_w, int(x2 + padding * w))
+    ny2 = min(img_h, int(y2 + padding * h))
+    if nx2 <= nx1 or ny2 <= ny1:
+        return False
+
+    crop = bgr[ny1:ny2, nx1:nx2]
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(out), crop):
+        logger.warning("写入裁剪图失败: %s", out)
+        return False
+    return True
 
 
 def load_face_aliases(registry_file: Path | None = None) -> dict[str, str]:
@@ -234,6 +328,7 @@ def build_face_index(faces_dir: Path | None = None) -> dict[str, Any]:
     registry_path = root / "registry.json"
     registry = load_registry(registry_path)
     aliases = load_face_aliases(registry_path)
+    per_person_thresholds = _registry_match_thresholds(registry_path)
     people: dict[str, Any] = {}
 
     if not root.is_dir():
@@ -262,10 +357,13 @@ def build_face_index(faces_dir: Path | None = None) -> dict[str, Any]:
                 len(samples),
             )
         else:
-            people[person_id] = {
+            person_entry = {
                 "name": display_name,
                 "samples": samples,
             }
+            if person_id in per_person_thresholds:
+                person_entry["match_threshold"] = per_person_thresholds[person_id]
+            people[person_id] = person_entry
             if dir_id == person_id:
                 logger.info("已注册 %s (%s): %d 张参考照", person_id, display_name, len(samples))
             else:
@@ -295,24 +393,68 @@ def save_face_index(index: dict[str, Any], faces_dir: Path | None = None) -> Pat
     return output
 
 
+def _registry_match_thresholds(registry_path: Path) -> dict[str, float]:
+    """person_id → match_threshold；未配置的不在 dict 中。"""
+    if not registry_path.is_file():
+        return {}
+    try:
+        data = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, float] = {}
+    for person_id, raw in data.items():
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("alias", "")).strip():
+            continue
+        mt = raw.get("match_threshold")
+        if mt in (None, ""):
+            continue
+        try:
+            value = float(mt)
+            if 0 < value <= 1:
+                out[str(person_id)] = value
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _person_threshold(person_id: str, person_data: dict[str, Any]) -> float:
+    mt = person_data.get("match_threshold")
+    if mt is not None and mt != "":
+        try:
+            return float(mt)
+        except (TypeError, ValueError):
+            pass
+    return FACE_MATCH_THRESHOLD
+
+
 def _match_embedding(
     embedding: list[float],
     index: dict[str, Any],
-    threshold: float,
 ) -> Person | None:
+    """按每人阈值匹配；在通过各自阈值的人里取最高分。"""
     best_id = ""
     best_name = ""
     best_score = 0.0
 
     for person_id, person_data in index.get("people", {}).items():
+        person_best = 0.0
         for sample in person_data.get("samples", []):
             score = _cosine_similarity(embedding, sample.get("embedding", []))
-            if score > best_score:
-                best_score = score
-                best_id = person_id
-                best_name = person_data.get("name", person_id)
+            if score > person_best:
+                person_best = score
 
-    if best_score < threshold:
+        if person_best < _person_threshold(person_id, person_data):
+            continue
+        if person_best > best_score:
+            best_score = person_best
+            best_id = person_id
+            best_name = person_data.get("name", person_id)
+
+    if not best_id:
         return None
 
     return Person(
@@ -340,38 +482,38 @@ def expand_face_bbox_to_body(
     return nx1, ny1, nx2, ny2
 
 
+def face_match_threshold(index: dict[str, Any] | None = None) -> float:
+    """识别阈值：以 .env 的 FACE_MATCH_THRESHOLD 为准（不用 index.json 旧快照）。"""
+    if index is not None:
+        stored = index.get("threshold")
+        if stored is not None:
+            stored_f = float(stored)
+            if abs(stored_f - FACE_MATCH_THRESHOLD) > 1e-6:
+                logger.debug(
+                    "index.json threshold=%.3f 已忽略，使用 FACE_MATCH_THRESHOLD=%.3f",
+                    stored_f,
+                    FACE_MATCH_THRESHOLD,
+                )
+    return FACE_MATCH_THRESHOLD
+
+
 def scan_faces(image_path: str | Path) -> tuple[list[Person], list[tuple[float, float, float, float]], bool]:
     """扫描人脸：返回 (已识别 people, 未匹配人脸框列表, 是否检测到脸)。"""
     index = load_face_index()
     if index is None:
         return [], [], False
 
-    app = _get_face_app()
-    if app is None:
-        return [], [], False
-
-    path = Path(image_path)
-    bgr = _load_image_bgr(path)
-    if bgr is None:
-        return [], [], False
-
-    try:
-        faces = app.get(bgr)
-    except Exception as exc:
-        logger.warning("人脸识别失败 %s: %s", path, exc)
-        return [], [], False
-
+    faces = detect_faces(image_path)
     if not faces:
         return [], [], False
 
-    threshold = float(index.get("threshold", FACE_MATCH_THRESHOLD))
     matched: dict[str, Person] = {}
     unmatched_bboxes: list[tuple[float, float, float, float]] = []
 
     for face in faces:
-        bbox = tuple(float(v) for v in face.bbox)
-        embedding = face.embedding.astype(float).tolist()
-        person = _match_embedding(embedding, index, threshold)
+        bbox = tuple(float(v) for v in face["bbox"])
+        embedding = face["embedding"]
+        person = _match_embedding(embedding, index)
         if person is None:
             unmatched_bboxes.append(bbox)  # type: ignore[arg-type]
             continue

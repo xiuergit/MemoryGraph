@@ -1,0 +1,15 @@
+{
+  "_comment": "仅用于「多个 POI 名其实指同一地点、要合并成一个 canonical」的场景。若要拆开保留不同公园/学校/小区名，请保持 places 为空，勿把别名写进这里。",
+  "places": [
+    {
+      "canonical": "示例：河滨香景园",
+      "aliases": ["香景园", "馨越公寓"],
+      "location_admin": {
+        "province": "上海市",
+        "city": "上海市",
+        "district": "普陀区",
+        "formatted_address": "上海市普陀区……河滨香景园"
+      }
+    }
+  ]
+}

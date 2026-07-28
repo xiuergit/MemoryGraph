@@ -13,11 +13,27 @@
 | `.geocode_cache.json` | 高德逆地理缓存 | ✅ 可删，会重新请求 |
 | `cache/outfit/` | CLIP 当日穿搭向量 | ✅ 可删，会重新计算 |
 
-## 衣着兜底（CLIP）
+## 衣着兜底（CLIP，默认关闭「猜人」）
 
-同一天内：
-1. **脸认出**某人 → 缓存当日穿搭向量到 `data/cache/outfit/YYYY-MM-DD.json`
-2. **脸不清** → 与当日缓存比对，命中则 `match_method: "outfit"`（置信度低于人脸）
+同一天内，**仅在高置信人脸（≥0.55）认出后**可选缓存衣着向量到 `data/cache/outfit/YYYY-MM-DD.json`。
+
+**未匹配人脸 → 衣着比对** 极易误识别（背影、动物园等同款衣服），默认 **关闭**（`OUTFIT_FALLBACK_ENABLED=false`）。JSON 里 `match_method: "outfit"` 即此类结果，应批量清理。
+
+```bash
+# 预览将清理多少
+python tools/photo2json/main.py --strip-outfit-matches --dry-run
+
+# 执行清理 + 删衣着缓存
+python tools/photo2json/main.py --strip-outfit-matches
+python tools/memory_index/main.py sync
+```
+
+若确需开启衣着猜人（不推荐）：
+
+```bash
+export OUTFIT_FALLBACK_ENABLED=true
+export OUTFIT_MATCH_THRESHOLD=0.90
+```
 
 安装依赖：
 

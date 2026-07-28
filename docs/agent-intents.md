@@ -10,8 +10,8 @@
 | 数据层 | 典型字段 | 当前状态（约） | 适合问的 |
 |--------|----------|----------------|----------|
 | **A. 档案/索引** | 计数、`birth_date`、`age_label` | 完整 | 几岁、多少张、某岁排行 |
-| **B. 时间线** | `timestamp`、`location`、`photo_terms` | 人物/时间/地点强，表情弱 | 最近去哪、第一次、有没有某标签 |
-| **C. 语义/感受** | `scene`、`emotion`、`tags` | vision 补全中（~5–15%） | 细腻感受类，暂不宜作为主路径 |
+| **B. 时间线** | `timestamp`、`location`、`photo_terms` | 人物/地点较强；`location` ~82%；`scene`/`tags`/`objects` ~90%+ | 最近去哪、第一次、有没有某标签 |
+| **C. 语义/感受** | `scene`、`emotion`、`tags` | scene/tags 已基本齐；`emotion` 仍偏稀（~40%） | 场景/标签可依赖；细腻表情类仍宜作补充 |
 
 新增意图时：先列自己常问的句子 → 标 A/B/C → 确认 SQLite 有字段 → 再加路由。**不要**在未匹配时默认返回「最近照片」（待改进）。
 
@@ -31,6 +31,10 @@
 
 高 → 低（先匹配先生效）：
 
+0. `recent_photos` — **优先**：「列出最后 N 张 / 最近 N 张」（含「去哪了，列出10张」类复合问句）
+0b. `story_lookup` — 含「故事」
+0c. `person_home_timeline` — 住过哪 / 呆最久（家事件跨度）
+0d. `recent_outings` / `outings_at_place` / `outings_by_period` — 出门（含按年/季）
 1. `person_age_place_rank` — N 岁 + 去哪最多 / 待最久
 2. `library_stats` — 多少张 / 一共 / 统计
 3. `group_photos` — X和Y合影 / 合照有哪些
@@ -39,13 +43,69 @@
 6. `person_age` — 几岁 / 多大
 7. `person_peak_day` — 哪天的照片最多 / 在什么地方
 8. `person_emotion_place_rank` — 表情 + 哪个地方最多（如「笑的最多」）
-9. `person_place_rank` — 常去 / 去哪最多（不限表情）
+9. `person_place_rank` — 常去 / **哪个地方**去最多（口语「去哪里了」不算排名；「呆最久」走家时间线）
 10. `person_cities_visited` — 哪些城市 / 哪些省（结构化地址）
 11. `person_places_visited` — 去过哪些地方（POI 列表）
 12. `person_at_place` — 去某地什么时候 / 去过几次
 13. `person_recent_places` — 最近在哪 / 去过（时间序）
 14. `recent_photos` — 最近 + 照片，或仅「照片」
 15. **fallback** — 当前仍落到 `recent_photos`（已知问题）
+
+---
+
+### `recent_outings` — 最近出门（事件）
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「出去玩」「出门玩了哪些」「最近出门」等 |
+| **参数** | `person`（可选）、`limit` |
+| **查库** | `events` 表（`is_home=0`），优先显示 `overlay.title` |
+| **回答** | 出门列表：日期·地点 / 备注标题、张数、人物 |
+
+```bash
+python tools/memory_events/main.py sync   # 需先聚合
+python tools/memory_ask/main.py "最近出去玩了哪些"
+```
+
+### `person_home_timeline` — 住过哪（家事件时间线）
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「住过哪」「搬过」「呆的时间最长」「哪个地方呆最久」等 |
+| **查库** | `events` 且 `is_home=1`，按地点聚合 `MIN(day)–MAX(day)` |
+| **回答** | 迁居时间线 + 年龄跨度；并点出日历跨度最长的住址 |
+
+```bash
+python tools/memory_ask/main.py "面面在哪个地方呆的时间最长"
+python tools/memory_ask/main.py "面面住过哪些地方"
+```
+
+### `outings_by_period` — 按年 / 季列出门
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 含年（2024年 / 去年 / 今年）或季（春夏秋冬）+ 出门/出去玩 |
+| **查库** | outing 事件，按 `day` 年前缀 + 可选月份过滤 |
+| **回答** | 该时段出门清单（默认最多 40 条） |
+
+```bash
+python tools/memory_ask/main.py "面面2024年出去玩了哪些"
+python tools/memory_ask/main.py "去年春天出门"
+```
+
+### `outings_at_place` — 某地几趟出门
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 地名 +「几趟 / 几次出门 / 几次活动 / 去过几次」 |
+| **查库** | `events.location` 模糊匹配 |
+
+### `story_lookup` — 跨天故事
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 问句含「故事」 |
+| **查库** | `stories` 标题/正文；Vue「事件」Tab 创建 |
 
 ---
 
@@ -224,7 +284,7 @@ python tools/memory_ask/main.py "第一次哭是什么时候"
 python tools/memory_ask/main.py "面面第一次哭是什么时候"
 ```
 
-**依赖**：`photo_terms`（vision backfill 写入 emotion）；覆盖率不足时可能查不到。
+**依赖**：`photo_terms`（vision backfill 写入 emotion）；`emotion` 仍约四成有值，未标注时可能查不到。
 
 ---
 
@@ -337,7 +397,7 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 |------|------|
 | 未识别问题 | 仍默认 `recent_photos`，易答非所问 → 计划改为 `unknown` + 示例提示 |
 | 说法变体 | 正则无法覆盖所有中文；高频句式靠迭代补充 |
-| emotion / scene | 仅 vision 已 backfill 的照片有值；统计类问题需接受「补全中」 |
+| emotion / scene | `scene`/`tags`/`objects` 已约九成有值；`emotion` 仍约四成，表情类统计可能偏少 |
 | 复合条件 | 如「4岁在公园哭过几次」= 年龄 × 地点 × 表情，尚未实现 |
 | 地点搜索 | `person_at_place` 已支持按地名模糊查；`search_photos` 通用搜索仍仅在 index 层 |
 
@@ -347,7 +407,7 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 
 | 意图 | 触发设想 | 前置条件 |
 |------|----------|----------|
-| `person_age_emotion` | 「4岁时常什么表情」 | emotion 覆盖率 > ~30% |
+| `person_age_emotion` | 「4岁时常什么表情」 | emotion 覆盖率已约 40%，可开做；仍需接受未标注照片 |
 | `unknown` | 无法路由 | 替换 fallback 行为 |
 
 ---

@@ -38,9 +38,14 @@ data/memorygraph.db             ← 可删重建
         │
         ▼
 tools/memory_ask/main.py      CLI 自然语言问答
+        │
+        ▼
+tools/memory_desk/ + web/     Vue Inspector（JSON / 地址缓存管理）
 ```
 
-**增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）。
+**地址纠错**（有 GPS）：改 `data/.geocode_cache.json`（Vue 或 `tools/location_mapping`）→ `--regeocode-locations --no-normalize-after` → `sync`。家附近已拆 POI 时勿再跑 `--normalize-locations`。
+
+**增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）；人脸库变更后用 `--backfill faces --refill`。
 
 ### 路径 B：iPhone App 上传（可选，骨架已有）
 
@@ -66,7 +71,9 @@ data/
 ├── memory/                  # 一图一 JSON，与 photo_id 一一对应
 ├── faces/                   # 人脸参考照 + registry.json
 ├── memorygraph.db           # SQLite 索引（sync 重建）
-├── .geocode_cache.json      # 高德逆地理缓存
+├── .geocode_cache.json      # 高德逆地理缓存（地址纠错真源，v6 key）
+├── location_canonical.json  # 可选；合并别名用（家附近「拆开 POI」时通常留空）
+├── .trash/                  # Desk 删除回收（photos/ + memory/）
 └── cache/outfit/            # CLIP 当日穿搭向量缓存
 ```
 
@@ -92,8 +99,9 @@ data/
 | `hub/shared/vision.py` | Ollama 视觉模型 |
 | `hub/shared/face.py` | InsightFace 人脸库匹配 |
 | `hub/shared/outfit.py` | CLIP 衣着兜底 |
-| `hub/shared/geocode.py` | 高德逆地理编码 |
-| `hub/shared/location_cluster.py` | 同日 GPS 聚类、统一 location |
+| `hub/shared/geocode.py` | 高德逆地理、`.geocode_cache.json` CRUD |
+| `hub/shared/location_cluster.py` | 同日 GPS 聚类、regeocode、`manual_location` 清理 |
+| `hub/shared/location_canonical.py` | 缓存别名合并（可选）；按地名删缓存 |
 | `hub/shared/backfill.py` | 增量补全 vision / faces |
 | `hub/shared/index_db.py` | SQLite 同步与查询 |
 | `hub/shared/query.py` | 问答事实收集 |
@@ -102,7 +110,14 @@ data/
 | `tools/photo2json/` | Mac 批量处理与 backfill |
 | `tools/face_enroll/` | 人脸库注册 |
 | `tools/memory_index/` | 索引 sync / stats / search |
+| `tools/memory_events/` | Outing 事件聚合 sync / stats / list |
 | `tools/memory_ask/` | CLI 问答 |
+| `tools/memory_desk/` | FastAPI：搜文件、问答 API、memory/geocode 缓存 API |
+| `web/` | Vue Inspector：列表、问答、详情、批量改地址、地址缓存、验证、健康报告 |
+| `tools/location_mapping/` | 地址缓存 CLI（migrate / delete-by-location / delete-incomplete） |
+| `tools/memory_stats/` | 数据健康报告 |
+| `tools/find/` | 按文件名搜索 CLI |
+| `hub/shared/photo_delete.py` | 删除照片（`.trash` + 清索引） |
 | `hub/mac_server/` | iOS 上传接收（可选） |
 | `apps/ios/` | iPhone 采集 App（待开发） |
 
@@ -113,8 +128,9 @@ data/
 | **0** | Mac 批量 Photo→JSON | ✅ 完成 |
 | **1** | 本地视觉 + 人脸识别 | ✅ Ollama + InsightFace + CLIP |
 | **2** | iOS 上传 / 日常同步 | ⏸ 骨架有；当前用「导出到 Mac」 |
-| **3** | 记忆库索引与检索 | ⚠️ SQLite + CLI 搜索/问答已有；Web 时间线未做 |
-| **4+** | Event 聚合、语音/Web | 🔜 Event 未做；CLI Agent 规则意图见 [agent-intents.md](agent-intents.md) |
+| **3** | 记忆库索引与检索 | ⚠️ SQLite + CLI + Desk API + **Vue Inspector（含问答 Tab）**；完整时间线 🔜 |
+| **4** | Event 聚合 | ✅ 同日同地 outing + overlay/stories（Vue「事件」Tab） |
+| **4+** | 向量 RAG、语音/Web | 🔜 结构化问答优先；语义检索后置 |
 
 日常操作详见 [operations.md](operations.md)。
 

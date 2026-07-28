@@ -164,7 +164,14 @@ def analyze_image_ollama(image_path: str | Path) -> AnalysisResult:
 
     parsed = _extract_json_object(content)
     if parsed is None:
-        logger.warning("Ollama 返回内容无法解析为 JSON: %s", content[:200])
+        if not content:
+            logger.warning(
+                "Ollama 返回空内容（模型可能未加载、崩溃或并发过载）。"
+                "请重启 Ollama 后单张测试：ollama run %s",
+                OLLAMA_VISION_MODEL,
+            )
+        else:
+            logger.warning("Ollama 返回内容无法解析为 JSON: %s", content[:200])
         return empty_analysis()
 
     # people 由人脸识别模块负责，忽略模型返回的人物信息

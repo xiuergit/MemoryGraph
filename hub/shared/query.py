@@ -3,22 +3,60 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
-from hub.shared.family import compute_age_at_photo, load_family_members
+from hub.shared.family import (
+    compute_age_at_photo,
+    load_family_members,
+    resolve_person,
+    person_search_tokens,
+)
 from hub.shared.index_db import connect, init_db, list_timeline, search_photos
+
+SEASON_MONTHS: dict[str, tuple[int, ...]] = {
+    "春": (3, 4, 5),
+    "夏": (6, 7, 8),
+    "秋": (9, 10, 11),
+    "冬": (12, 1, 2),
+}
+
+
+def _parse_day(value: str) -> date | None:
+    raw = (value or "").strip()[:10]
+    if len(raw) < 10:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _short_age_label(age: Any) -> str:
+    if not age:
+        return ""
+    years = int(age.get("years") or 0)
+    months = int(age.get("months") or 0)
+    days = int(age.get("days") or 0)
+    total_days = int(age.get("total_days") or 0)
+    if years <= 0 and months <= 0:
+        return f"{total_days}天" if total_days else ""
+    if years <= 0:
+        return f"{months}个月"
+    if months:
+        return f"{years}岁{months}个月"
+    return f"{years}岁"
 
 
 def _find_member(name: str) -> tuple[str, Any] | None:
-    """按中文名或 id 查找家庭成员。"""
-    needle = name.strip()
-    if not needle:
+    """按中文名、昵称或 id 查找家庭成员。"""
+    resolved = resolve_person(name)
+    if resolved is None:
         return None
-    for person_id, member in load_family_members().items():
-        if needle in member.name or needle == person_id:
-            return person_id, member
-    return None
+    member = load_family_members().get(resolved.person_id)
+    if member is None:
+        return None
+    return resolved.person_id, member
 
 
 def get_recent_photos(
@@ -235,7 +273,13 @@ def _place_match_params(pattern: str) -> list[str]:
 
 
 def _person_pattern(person: str) -> list[str]:
-    return [f"%{person}%", f"%{person}%"]
+    tokens = person_search_tokens(person)
+    patterns: list[str] = []
+    for token in tokens:
+        pat = f"%{token}%"
+        if pat not in patterns:
+            patterns.append(pat)
+    return patterns or [f"%{person}%", f"%{person}%"]
 
 
 def _term_type_count_sql(exists: str, term_type: str) -> str:
@@ -578,6 +622,126 @@ def get_person_age_place_rank(
             }
             for row in rows
         ],
+    }
+
+
+def get_person_home_timeline(
+    conn: sqlite3.Connection,
+    *,
+    person: str,
+) -> dict[str, Any]:
+    """某人住过的地方：按 home 事件地点聚合日历跨度（迁居时间线）。"""
+    found = _find_member(person)
+    if found is None:
+        return {"found": False, "person": person}
+
+    _, member = found
+    name = member.name
+    rows = conn.execute(
+        """
+        SELECT
+            e.location AS location,
+            MIN(e.day) AS first_day,
+            MAX(e.day) AS last_day,
+            COUNT(*) AS event_count,
+            SUM(e.photo_count) AS photo_count
+        FROM events e
+        WHERE e.is_home = 1
+          AND e.location != ''
+          AND e.people_json LIKE ?
+        GROUP BY e.location
+        ORDER BY first_day ASC
+        """,
+        (f"%{name}%",),
+    ).fetchall()
+
+    homes: list[dict[str, Any]] = []
+    for row in rows:
+        first_day = str(row["first_day"] or "")
+        last_day = str(row["last_day"] or "")
+        d0 = _parse_day(first_day)
+        d1 = _parse_day(last_day)
+        span_days = (d1 - d0).days + 1 if d0 and d1 else 0
+        age_start = None
+        age_end = None
+        if member.birth_date and d0:
+            age_start = dict(
+                compute_age_at_photo(member.birth_date, d0, role=member.role)
+            )
+        if member.birth_date and d1:
+            age_end = dict(
+                compute_age_at_photo(member.birth_date, d1, role=member.role)
+            )
+        homes.append(
+            {
+                "location": row["location"],
+                "first_day": first_day,
+                "last_day": last_day,
+                "span_days": span_days,
+                "event_count": int(row["event_count"] or 0),
+                "photo_count": int(row["photo_count"] or 0),
+                "age_start": age_start,
+                "age_end": age_end,
+                "age_start_label": _short_age_label(age_start),
+                "age_end_label": _short_age_label(age_end),
+            }
+        )
+
+    longest = max(homes, key=lambda h: h["span_days"]) if homes else None
+    return {
+        "found": True,
+        "person": name,
+        "birth_date": member.birth_date.isoformat() if member.birth_date else "",
+        "homes": homes,
+        "longest": longest,
+        "home_count": len(homes),
+    }
+
+
+def get_outings_by_period(
+    conn: sqlite3.Connection,
+    *,
+    person: str = "",
+    year: str = "",
+    season: str = "",
+    limit: int = 40,
+) -> dict[str, Any]:
+    """按年 / 季列出 outing 事件（不含家）。"""
+    from hub.shared.events import count_events, list_events
+
+    year = (year or "").strip()
+    season = (season or "").strip()
+    months = SEASON_MONTHS.get(season)
+    day = year if year else ""
+    events = list_events(
+        conn,
+        day=day,
+        person=person,
+        include_home=False,
+        months=months,
+        limit=limit,
+    )
+    total = count_events(
+        conn,
+        day=day,
+        person=person,
+        include_home=False,
+        months=months,
+    )
+    period_bits = []
+    if year:
+        period_bits.append(f"{year}年")
+    if season:
+        period_bits.append(f"{season}季")
+    return {
+        "found": True,
+        "person": person,
+        "year": year,
+        "season": season,
+        "period_label": "".join(period_bits) or "全部时段",
+        "events": events,
+        "total": total,
+        "returned": len(events),
     }
 
 
@@ -1040,7 +1204,7 @@ def get_person_at_place(
         row = conn.execute(
             f"""
             SELECT p.photo_id, p.timestamp, p.location, p.location_city,
-                   p.location_province, pp.age_label
+                   p.location_province, p.source_path, pp.age_label
             FROM photos p
             JOIN photo_people pp ON pp.photo_id = p.photo_id
             WHERE (pp.person_name = ? OR pp.person_id = ?)
@@ -1436,6 +1600,67 @@ def gather_facts(
             "term": term,
             "term_type": term_type,
             **result,
+        }
+
+    if intent == "recent_outings":
+        from hub.shared.events import list_events
+
+        events = list_events(
+            conn,
+            person=person,
+            include_home=False,
+            limit=limit,
+        )
+        return {"intent": intent, "person": person, "events": events}
+
+    if intent == "outings_by_period":
+        result = get_outings_by_period(
+            conn,
+            person=person,
+            year=str(params.get("year", "")),
+            season=str(params.get("season", "")),
+            limit=limit,
+        )
+        return {"intent": intent, **result}
+
+    if intent == "person_home_timeline":
+        result = get_person_home_timeline(conn, person=person)
+        return {"intent": intent, **result}
+
+    if intent == "outings_at_place":
+        from hub.shared.events import list_events
+
+        place = str(params.get("place", ""))
+        events = list_events(
+            conn,
+            person=person,
+            location=place,
+            include_home=False,
+            limit=limit,
+        )
+        return {
+            "intent": intent,
+            "person": person,
+            "place": place,
+            "events": events,
+        }
+
+    if intent == "story_lookup":
+        from hub.shared.events import get_story, search_stories
+
+        query = str(params.get("query", "")).strip()
+        stories = search_stories(conn, query, limit=limit)
+        # 附带 links 详情
+        detailed = []
+        for s in stories:
+            full = get_story(conn, s["story_id"])
+            if full:
+                detailed.append(full)
+        return {
+            "intent": intent,
+            "person": person,
+            "query": query,
+            "stories": detailed,
         }
 
     return {"intent": "unknown", "question_params": params}

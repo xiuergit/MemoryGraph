@@ -1,0 +1,16 @@
+# MemoryGraph — Cursor AI 不可读路径（家庭私有数据）
+# 与 AGENTS.md「AI 协作隐私」一致；改此文件时同步更新 AGENTS.md
+
+# 原图：禁止读取、分析、预览
+data/photos/**
+
+# 人脸参考照（保留说明文档与示例配置）
+data/faces/**/*
+!data/faces/README.md
+!data/faces/registry.example.json
+
+# 软删除目录（仍可能含原图与 JSON）
+data/.trash/**
+
+# 本地密钥
+.env

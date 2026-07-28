@@ -52,8 +52,8 @@ AI 是工具，Memory 才是目的。
 
 ### 4. 永远先做最小闭环
 
-**当前闭环**：原图 → JSON → SQLite 索引 → CLI 问答。  
-下一阶段重点：跑满图库、补全 vision backfill、提升问答质量；再考虑 Web 时间线与 Event。
+**当前闭环**：原图 → JSON → SQLite 索引 → CLI 问答；**Vue Inspector** 管理 JSON 与地址缓存。  
+下一阶段重点：Event 聚合 v1、Vue 问答 Tab、人物纠错；向量 RAG 与完整时间线后置。
 
 ---
 
@@ -82,13 +82,16 @@ AI 是工具，Memory 才是目的。
 
 - ✅ SQLite 索引（`memory_index sync`）
 - ✅ CLI 关键词搜索与自然语言问答（`memory_ask`）
-- 🔜 时间线 Web 浏览
+- ✅ **MemoryGraph Desk**（FastAPI）+ **Vue Inspector**（列表、详情、批量改地址、地址缓存、验证、健康报告）
+- 🔜 Vue 问答 Tab、完整时间线 Web、Event 聚合
 
 ### 阶段 4+：Event / 体验 🔜
 
-- 事件聚合（同日同地 → outing）
-- 语音 / 玩偶 / Web GUI（在有稳定 JSON 库之后）
-- 视频 / 音频 JSON（photo  pipeline 稳定后再做）
+- 事件聚合（同日同地 → outing；数据已具备，脚本未做）
+- Vue 问答 Tab、人物纠错 UI
+- 向量语义检索（结构化问答优先）
+- 语音 / 玩偶 / 完整 Web GUI
+- 视频 / 音频 JSON（photo pipeline 稳定后再做）
 
 ---
 
@@ -102,8 +105,13 @@ MemoryGraph/
 ├── tools/
 │   ├── photo2json/       # 批量 Photo → JSON
 │   ├── face_enroll/      # 人脸库注册
+│   ├── location_mapping/ # 地址缓存 CLI
 │   ├── memory_index/     # SQLite 同步与搜索
-│   └── memory_ask/       # CLI 问答
+│   ├── memory_ask/       # CLI 问答
+│   ├── memory_desk/      # FastAPI
+│   ├── memory_stats/     # 健康报告
+│   └── find/             # 文件名搜索
+├── web/                  # Vue Inspector
 ├── data/                 # 运行时：photos、memory、faces、db
 └── docs/
 ```

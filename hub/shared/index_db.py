@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from hub.shared.schema import location_admin_from_dict
+from hub.shared.family import person_search_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,10 @@ CREATE TABLE IF NOT EXISTS photos (
     location_coords TEXT NOT NULL DEFAULT '',
     source_path TEXT NOT NULL DEFAULT '',
     face_detected INTEGER NOT NULL DEFAULT 0,
+    manual_edit INTEGER NOT NULL DEFAULT 0,
+    manual_location INTEGER NOT NULL DEFAULT 0,
+    manual_people INTEGER NOT NULL DEFAULT 0,
+    manual_vision INTEGER NOT NULL DEFAULT 0,
     json_path TEXT NOT NULL,
     json_mtime REAL NOT NULL,
     indexed_at TEXT NOT NULL
@@ -51,6 +56,65 @@ CREATE TABLE IF NOT EXISTS photo_terms (
 CREATE INDEX IF NOT EXISTS idx_photos_timestamp ON photos(timestamp);
 CREATE INDEX IF NOT EXISTS idx_photo_people_name ON photo_people(person_name);
 CREATE INDEX IF NOT EXISTS idx_photo_terms_term ON photo_terms(term);
+
+CREATE TABLE IF NOT EXISTS events (
+    event_id TEXT PRIMARY KEY,
+    day TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    location_coords TEXT NOT NULL DEFAULT '',
+    time_start TEXT NOT NULL DEFAULT '',
+    time_end TEXT NOT NULL DEFAULT '',
+    photo_count INTEGER NOT NULL DEFAULT 0,
+    people_json TEXT NOT NULL DEFAULT '[]',
+    is_home INTEGER NOT NULL DEFAULT 0,
+    cluster_radius_m INTEGER NOT NULL DEFAULT 800,
+    source TEXT NOT NULL DEFAULT 'auto',
+    built_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS event_photos (
+    event_id TEXT NOT NULL,
+    photo_id TEXT NOT NULL,
+    sort_ts TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (event_id, photo_id),
+    FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS event_overlays (
+    overlay_id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL DEFAULT '',
+    anchor_photo_ids TEXT NOT NULL DEFAULT '[]',
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    manual INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS stories (
+    story_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    time_start TEXT NOT NULL DEFAULT '',
+    time_end TEXT NOT NULL DEFAULT '',
+    people_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS story_links (
+    story_id TEXT NOT NULL,
+    link_type TEXT NOT NULL,
+    link_id TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (story_id, link_type, link_id),
+    FOREIGN KEY (story_id) REFERENCES stories(story_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_day ON events(day);
+CREATE INDEX IF NOT EXISTS idx_events_is_home ON events(is_home);
+CREATE INDEX IF NOT EXISTS idx_event_photos_photo ON event_photos(photo_id);
+CREATE INDEX IF NOT EXISTS idx_event_overlays_event ON event_overlays(event_id);
+CREATE INDEX IF NOT EXISTS idx_story_links_link ON story_links(link_type, link_id);
 """
 
 
@@ -77,11 +141,27 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "photos", "location_province", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "photos", "location_city", "TEXT NOT NULL DEFAULT ''")
     _ensure_column(conn, "photos", "location_district", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "manual_edit", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "photos", "manual_location", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "photos", "manual_people", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "photos", "manual_vision", "INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_photos_location_province ON photos(location_province)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_photos_location_city ON photos(location_city)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_manual_edit ON photos(manual_edit)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_manual_location ON photos(manual_location)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_manual_people ON photos(manual_people)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_manual_vision ON photos(manual_vision)"
     )
     conn.commit()
 
@@ -109,6 +189,10 @@ def _photo_row(data: dict[str, Any], json_path: Path, json_mtime: float) -> tupl
         admin["district"],
         source.get("path", ""),
         1 if quality.get("face_detected") else 0,
+        1 if data.get("manual_edit") else 0,
+        1 if data.get("manual_location") else 0,
+        1 if data.get("manual_people") else 0,
+        1 if data.get("manual_vision") else 0,
         str(json_path.resolve()),
         json_mtime,
         datetime.now().isoformat(timespec="seconds"),
@@ -135,10 +219,16 @@ def _people_rows(photo_id: str, people: list[dict[str, Any]]) -> list[tuple]:
 def _term_rows(photo_id: str, data: dict[str, Any]) -> list[tuple]:
     rows: list[tuple] = []
     for field in ("tags", "objects", "actions", "emotion"):
+        seen: set[str] = set()
         for term in data.get(field) or []:
-            if term:
-                rows.append((photo_id, str(term), field))
-    scene = data.get("scene", "")
+            if not term:
+                continue
+            key = str(term)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append((photo_id, key, field))
+    scene = str(data.get("scene", "")).strip()
     if scene:
         rows.append((photo_id, scene, "scene"))
     return rows
@@ -153,8 +243,10 @@ def _upsert_photo(conn: sqlite3.Connection, data: dict[str, Any], json_path: Pat
         INSERT INTO photos (
             photo_id, timestamp, device_id, scene, location, location_coords,
             location_province, location_city, location_district,
-            source_path, face_detected, json_path, json_mtime, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            source_path, face_detected, manual_edit, manual_location,
+            manual_people, manual_vision,
+            json_path, json_mtime, indexed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(photo_id) DO UPDATE SET
             timestamp = excluded.timestamp,
             device_id = excluded.device_id,
@@ -166,6 +258,10 @@ def _upsert_photo(conn: sqlite3.Connection, data: dict[str, Any], json_path: Pat
             location_district = excluded.location_district,
             source_path = excluded.source_path,
             face_detected = excluded.face_detected,
+            manual_edit = excluded.manual_edit,
+            manual_location = excluded.manual_location,
+            manual_people = excluded.manual_people,
+            manual_vision = excluded.manual_vision,
             json_path = excluded.json_path,
             json_mtime = excluded.json_mtime,
             indexed_at = excluded.indexed_at
@@ -279,17 +375,23 @@ def search_photos(
     params: list[Any] = []
 
     if person:
+        tokens = person_search_tokens(person)
+        if not tokens:
+            tokens = [person]
+        token_clauses: list[str] = []
+        for token in tokens:
+            token_clauses.append("(pp.person_name LIKE ? OR pp.person_id LIKE ?)")
+            pattern = f"%{token}%"
+            params.extend([pattern, pattern])
         clauses.append(
-            """
+            f"""
             EXISTS (
                 SELECT 1 FROM photo_people pp
                 WHERE pp.photo_id = p.photo_id
-                  AND (pp.person_name LIKE ? OR pp.person_id LIKE ?)
+                  AND ({' OR '.join(token_clauses)})
             )
             """
         )
-        pattern = f"%{person}%"
-        params.extend([pattern, pattern])
 
     if query:
         clauses.append(
@@ -337,6 +439,7 @@ def list_timeline(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str
             p.timestamp,
             p.scene,
             p.location,
+            p.source_path,
             GROUP_CONCAT(DISTINCT pp.person_name) AS people
         FROM photos p
         LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
@@ -347,3 +450,27 @@ def list_timeline(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str
         (limit,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def sync_json_file(
+    json_path: Path,
+    db_path: Path | None = None,
+) -> bool:
+    """将单条 memory JSON 同步进 SQLite（JSON 为真源）。"""
+    from hub.shared.config import MEMORY_DB
+
+    path = Path(json_path)
+    if not path.is_file():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("同步索引失败 %s: %s", path.name, exc)
+        return False
+
+    conn = connect(db_path or MEMORY_DB)
+    init_db(conn)
+    _upsert_photo(conn, data, path)
+    conn.commit()
+    conn.close()
+    return True

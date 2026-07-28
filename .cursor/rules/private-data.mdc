@@ -1,0 +1,14 @@
+---
+description: 禁止 Cursor AI 读取家庭私有原图与人脸参考照
+alwaysApply: true
+---
+
+# AI 协作隐私
+
+根目录 `.cursorignore` 已排除 `data/photos/`、`data/faces/` 参考照、`.env` 等路径。
+
+- **禁止**读取、分析、预览 `data/photos/**` 中的原图
+- **禁止**读取 `data/faces/**/*` 中的人脸参考照（README / registry.example 除外）
+- 理解照片内容 → 使用 `data/memory/*.json` 或 SQLite 索引
+- 改图像分析逻辑 → 只改代码（`hub/shared/analyzer.py` 等），不用样本原图做试验
+- 本地批处理（`photo2json`、`face_enroll`）在本机读原图，与 Cursor 无关

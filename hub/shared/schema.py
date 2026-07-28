@@ -84,6 +84,34 @@ class PhotoJson(TypedDict, total=False):
     quality: Quality
     source: Source
     manual_edit: bool
+    manual_location: bool
+    manual_people: bool
+    manual_vision: bool
+
+
+def refresh_manual_edit_flag(data: dict[str, Any]) -> None:
+    """用分项锁同步兼容字段 manual_edit（仅作展示/汇总，跳过逻辑看分项）。"""
+    any_manual = bool(
+        data.get("manual_location")
+        or data.get("manual_people")
+        or data.get("manual_vision")
+    )
+    if any_manual:
+        data["manual_edit"] = True
+    else:
+        data.pop("manual_edit", None)
+
+
+def is_manual_people(data: dict[str, Any]) -> bool:
+    return bool(data.get("manual_people"))
+
+
+def is_manual_vision(data: dict[str, Any]) -> bool:
+    return bool(data.get("manual_vision"))
+
+
+def is_manual_location(data: dict[str, Any]) -> bool:
+    return bool(data.get("manual_location"))
 
 
 # Analyzer 应返回的 AI 分析字段（不含 photo_id / timestamp / source / device_id）

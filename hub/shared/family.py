@@ -21,6 +21,7 @@ class FamilyMember:
     name: str
     birth_date: date | None = None
     role: str = ""
+    match_threshold: float | None = None
 
 
 def _parse_birth_date(raw: Any) -> date | None:
@@ -75,13 +76,172 @@ def load_family_members(registry_file: Path | None = None) -> dict[str, FamilyMe
         # alias 条目仅用于人脸参考照目录合并，不参与家庭成员档案
         if str(raw.get("alias", "")).strip():
             continue
+        birth = _parse_birth_date(raw.get("birth_date"))
+        threshold_raw = raw.get("match_threshold")
+        match_threshold: float | None = None
+        if threshold_raw not in (None, ""):
+            try:
+                match_threshold = float(threshold_raw)
+            except (TypeError, ValueError):
+                logger.warning("无法解析 match_threshold: %s (%s)", threshold_raw, pid)
         members[pid] = FamilyMember(
             person_id=pid,
             name=str(raw.get("name", pid)),
-            birth_date=_parse_birth_date(raw.get("birth_date")),
+            birth_date=birth,
             role=str(raw.get("role", "")),
+            match_threshold=match_threshold,
         )
     return members
+
+
+@dataclass(frozen=True)
+class ResolvedPerson:
+    person_id: str
+    name: str
+    search_values: tuple[str, ...]
+
+
+# 常见叫法 → person_id（registry 中文名之外的口语）
+PERSON_NICKNAMES: dict[str, tuple[str, ...]] = {
+    "laoyiyi": ("老姨",),
+    "laoyifu": ("姨夫",),
+    "waigong": ("姥爷",),
+    "mom": ("母亲",),
+    "dad": ("父亲",),
+}
+
+
+def _is_placeholder_name(person_id: str, name: str) -> bool:
+    if not name or name == person_id:
+        return True
+    return person_id.startswith("unk_") and name.startswith("unk_")
+
+
+def _nickname_entries(
+    members: dict[str, FamilyMember],
+) -> list[tuple[str, str]]:
+    """(nickname, person_id)"""
+    rows: list[tuple[str, str]] = []
+    for person_id, aliases in PERSON_NICKNAMES.items():
+        if person_id not in members:
+            continue
+        for alias in aliases:
+            if alias:
+                rows.append((alias, person_id))
+    return rows
+
+
+def resolve_person(
+    needle: str,
+    *,
+    registry_file: Path | None = None,
+) -> ResolvedPerson | None:
+    """把问句里的中文名 / 昵称 / person_id 解析为 registry 成员。"""
+    text = needle.strip()
+    if not text:
+        return None
+
+    members = load_family_members(registry_file)
+
+    if text in members:
+        member = members[text]
+        return ResolvedPerson(
+            person_id=text,
+            name=member.name or text,
+            search_values=_search_values(text, member),
+        )
+
+    best: tuple[int, str] | None = None
+    for person_id, member in members.items():
+        name = member.name.strip()
+        if name and not _is_placeholder_name(person_id, name):
+            if text == name or text in name:
+                score = len(name) if text == name else len(text)
+                if best is None or score > best[0]:
+                    best = (score, person_id)
+            if name in text:
+                score = len(name)
+                if best is None or score > best[0]:
+                    best = (score, person_id)
+
+    for alias, person_id in _nickname_entries(members):
+        if text == alias or alias in text:
+            score = len(alias)
+            if best is None or score > best[0]:
+                best = (score, person_id)
+
+    if best is None:
+        return None
+
+    person_id = best[1]
+    member = members[person_id]
+    return ResolvedPerson(
+        person_id=person_id,
+        name=member.name or person_id,
+        search_values=_search_values(person_id, member),
+    )
+
+
+def _search_values(person_id: str, member: FamilyMember) -> tuple[str, ...]:
+    values: list[str] = [person_id]
+    name = member.name.strip()
+    if name and name not in values:
+        values.append(name)
+    for alias in PERSON_NICKNAMES.get(person_id, ()):
+        if alias not in values:
+            values.append(alias)
+    return tuple(values)
+
+
+def match_persons_in_text(
+    text: str,
+    *,
+    registry_file: Path | None = None,
+) -> list[ResolvedPerson]:
+    """从文本中按最长匹配提取人物（去重，保持出现顺序）。"""
+    members = load_family_members(registry_file)
+    hits: list[tuple[int, int, str]] = []
+
+    for person_id, member in members.items():
+        name = member.name.strip()
+        if name and not _is_placeholder_name(person_id, name) and name in text:
+            hits.append((text.index(name), len(name), person_id))
+        if person_id in text:
+            hits.append((text.index(person_id), len(person_id), person_id))
+
+    for alias, person_id in _nickname_entries(members):
+        if alias in text:
+            hits.append((text.index(alias), len(alias), person_id))
+
+    hits.sort(key=lambda item: (item[0], -item[1]))
+    seen: set[str] = set()
+    ordered: list[ResolvedPerson] = []
+    for _, _, person_id in hits:
+        if person_id in seen:
+            continue
+        seen.add(person_id)
+        member = members[person_id]
+        ordered.append(
+            ResolvedPerson(
+                person_id=person_id,
+                name=member.name or person_id,
+                search_values=_search_values(person_id, member),
+            )
+        )
+    return ordered
+
+
+def person_search_tokens(
+    needle: str,
+    *,
+    registry_file: Path | None = None,
+) -> list[str]:
+    """SQLite 检索用的 person_id / 中文名 / 昵称列表。"""
+    resolved = resolve_person(needle, registry_file=registry_file)
+    if resolved:
+        return list(resolved.search_values)
+    text = needle.strip()
+    return [text] if text else []
 
 
 def load_display_names(registry_file: Path | None = None) -> dict[str, str]:

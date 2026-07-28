@@ -26,7 +26,9 @@ memory_ask（自然语言问答）
 | `data/photos/` | 原图 | ❌ 核心资产，别删 |
 | `data/memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
 | `data/memorygraph.db` | 检索索引 | ✅ 随时 `sync` 重建 |
-| `data/.geocode_cache.json` | 高德地址缓存 | ✅ 可删，会重新请求 |
+| `data/.geocode_cache.json` | 高德地址缓存（**纠错真源**，v6 key） | ✅ 可删重建；日常在 Vue/CLI 改 |
+| `data/location_canonical.json` | 可选；合并别名（家附近「拆开 POI」时通常留空） | ✅ |
+| `data/.trash/` | Desk 删除的照片/JSON | ✅ 可恢复；彻底清空 `rm -rf data/.trash/` |
 
 ---
 
@@ -95,7 +97,7 @@ ollama pull qwen2.5:7b
 cp data/faces/registry.example.json data/faces/registry.json
 # 编辑 registry.json：姓名、birth_date、role
 
-python tools/face_enroll/main.py
+python tools/face_enroll/main.py build
 ```
 
 `registry.json` 示例：
@@ -132,7 +134,7 @@ data/photos/2025/IMG_3832.HEIC
 data/photos/2026/IMG_3855.HEIC
 ```
 
-支持格式：`.jpg` `.jpeg` `.png` `.heic` `.heif`
+支持格式：`.jpg` `.jpeg` `.png` `.heic` `.heif`（**不含** `.mov` 等视频；视频在 `photos/` 里但不进 JSON/索引）
 
 ### 步骤 2：批量生成 JSON
 
@@ -162,19 +164,23 @@ python tools/photo2json/main.py --normalize-locations
 python tools/memory_index/main.py sync
 ```
 
-**地点名不合理时（不需原图）**：按 JSON 里的 `location_coords` 重新调高德，写回 `location` 与 `location_admin`（省/市/区/完整地址）：
+**地点名不合理时（不需原图）**：优先改 **地址缓存**（见第八节），再按 JSON 里的 `location_coords` 重算 `location` / `location_admin`：
 
 ```bash
 # 先试 5 条
 python tools/photo2json/main.py --regeocode-locations --limit 5
 
-# 全库重算（约 7k+ 有坐标，需 AMAP_KEY + 网络；缓存版本升级后会重新请求）
-python tools/photo2json/main.py --regeocode-locations
+# 全库重算（有坐标才会调高德；命中 .geocode_cache.json 则不请求 API）
+python tools/photo2json/main.py --regeocode-locations --no-normalize-after
 
 python tools/memory_index/main.py sync
 ```
 
-`location_coords` 不变；已有 `location` 但缺 `location_admin` 的也会补全；`manual_edit: true` 的 JSON 会跳过。
+**家附近 / 已手工拆 POI 时**：务必加 `--no-normalize-after`，**不要**再跑 `--normalize-locations`（会把「馨越公寓」「河滨香景园」等又合并成一条）。
+
+`location_coords` 不变；已有 `location` 但缺 `location_admin` 的也会补全；`manual_edit: true` 或 `manual_location: true` 的 JSON 会跳过。
+
+**无 GPS 的老照片**（约 37% 无 `location_coords`；约 18% 仍无可读 `location`）：只能靠 Vue「批量改地址」按日手工填；连拍多的日子优先改，≤4 张/天可跳过。
 
 **耗时说明：** 全量模式每张图要跑 Ollama 视觉 + 人脸 +（可选）CLIP。可分两阶段，见下文「快出 JSON + 后续补全」。
 
@@ -193,9 +199,11 @@ python tools/memory_index/main.py sync
 
 **第 2 阶段 — 只补 Ollama 视觉（已有 JSON 不会被整份重写）：**
 
+> **当前库况（约）：** `scene` / `tags` / `objects` 已约 **90%+** 有值；剩余待补多在 2021、2023。`emotion` 仍约四成，不必为补 emotion 单独重跑全库。用 `python tools/memory_stats/main.py` 看最新数字。
+
 ```bash
 export OLLAMA_VISION_ENABLED=true
-# 只补 scene/tags 还为空的照片
+# 只补 scene/tags/objects 仍全空的照片
 python tools/photo2json/main.py --backfill vision
 
 # 只补「已识别到人物」的照片（推荐，省时间）
@@ -213,8 +221,24 @@ python tools/memory_index/main.py sync
 # 只补人脸/people（例如后来更新了人脸库）
 python tools/photo2json/main.py --backfill faces
 
+# 人脸库新增成员后：重跑所有人脸（即使 people 非空也会更新）
+python tools/face_enroll/main.py build
+python tools/photo2json/main.py --backfill faces --refill
+
+# 只补「检测到脸但 people 为空」的照片（新人脸库维护后常用）
+python tools/photo2json/main.py --backfill faces --needs-faces
+
 # 补全部 AI 字段（等同对选中 JSON 重跑 analyze_image）
 python tools/photo2json/main.py --backfill all --has-people
+```
+
+**人脸 `--refill` 注意：** 全库约 2 万张，InsightFace 占内存大，可能被系统 `killed`（OOM）。建议按年或限量分批：
+
+```bash
+python tools/photo2json/main.py --backfill faces --refill --year 2024 --limit 500
+python tools/photo2json/main.py --backfill faces --refill --year 2023 --limit 500
+# 中断后反复执行即可续跑（已写入的 JSON 会保留）
+python tools/memory_index/main.py sync
 ```
 
 **哪些照片值得跑 Ollama？**
@@ -225,7 +249,7 @@ python tools/photo2json/main.py --backfill all --has-people
 | 纯风景、路人、文档截图 | ⏭ 可不跑，问答价值低 |
 | 连拍重复 | 可先快出 JSON，以后按时间去重再决定是否补 |
 
-默认 `--backfill` **只补空字段**（`scene/tags/objects` 都空才跑），中断后可反复执行，已补过的会跳过。
+默认 `--backfill` **只补空字段**（`scene`/`tags`/`objects` 都空才跑），中断后可反复执行，已补过的会跳过。主库已基本齐时，续补优先 `--year 2021` / `2023`。
 
 **温和模式（保护电脑、分批跑 Ollama）：**
 
@@ -250,6 +274,28 @@ python tools/photo2json/main.py --backfill vision --has-people \
 | `--limit 5` | 本次最多更新 5 张就停 |
 | `--sleep 15` | 每张之间歇 15 秒 |
 | `--batch-size 3 --batch-rest 120` | 每 3 张多歇 2 分钟 |
+| `--year 2025` | 只补 2025 年的 JSON |
+| `--needs-faces` | 只补「有脸未识别」（`face_detected` 且 `people` 空） |
+| `--refill` | 与 `--backfill` 联用：强制重跑（faces/vision），即使字段已有值 |
+| `--resume` | 显式续跑：跳过已有 scene/tags（默认行为，与 `--refill` 互斥） |
+
+**按年分批补 vision：**
+
+```bash
+# 看各年待补数量 + 续跑命令
+python tools/memory_stats/main.py --year 2025
+
+# 只补 2025 年、有人脸、每次 20 张，中断后反复执行即可续跑
+python tools/photo2json/main.py --backfill vision --year 2025 --has-people --resume --limit 20 --sleep 10
+python tools/memory_index/main.py sync
+```
+
+**数据健康报告：**
+
+```bash
+python tools/memory_stats/main.py
+python tools/memory_stats/main.py --year 2025
+```
 
 ### 步骤 3：同步 SQLite 索引
 
@@ -278,7 +324,10 @@ python tools/memory_ask/main.py "第一次哭是什么时候"
 python tools/memory_ask/main.py "面面4岁时在哪个地方待的时间最长"
 python tools/memory_ask/main.py "面面几岁了"
 python tools/memory_ask/main.py "面面最近在哪里玩"
+python tools/memory_ask/main.py "面面最近去哪里了，列出最后10张"
 ```
+
+默认回答里带 **file:// 可点击链接**（Cursor / 终端支持时）；不需要链接时加 `--no-links`。
 
 **调试（看内部查到了什么）：**
 
@@ -380,7 +429,7 @@ source .venv/bin/activate
 export $(grep -v '^#' .env | xargs)
 
 # 人脸库
-python tools/face_enroll/main.py
+python tools/face_enroll/main.py build
 
 # 分析
 python tools/photo2json/main.py
@@ -390,15 +439,133 @@ python tools/photo2json/main.py --force
 python tools/memory_index/main.py sync
 python tools/memory_index/main.py stats
 
+# 事件聚合（outing）
+python tools/memory_events/main.py sync
+python tools/memory_events/main.py stats
+python tools/memory_events/main.py list --limit 20
+
 # 问答（意图说明见 docs/agent-intents.md）
 python tools/memory_ask/main.py "有多少张有表情的"
 python tools/memory_ask/main.py "面面几岁了"
 python tools/memory_ask/main.py "第一次哭是什么时候"
+python tools/memory_ask/main.py "最近出去玩了哪些"
+
+# 地址缓存 CLI
+python tools/location_mapping/main.py help
+
+# Vue Inspector（需先起 Desk API）
+cd web && npm install && npm run dev
 ```
 
 ---
 
-## 八、相关文档
+## 八、Vue Inspector 与地址纠错
+
+**MemoryGraph Desk** 提供 FastAPI（`tools/memory_desk/main.py`）；**Vue Inspector**（`web/`）通过 Vite 代理连 Desk，用于浏览/改 JSON 与地址缓存。
+
+### 启动
+
+```bash
+# 终端 1：Desk API（默认 8766；--auto-port 若端口占用）
+source .venv/bin/activate
+export $(grep -v '^#' .env | xargs)
+python tools/memory_desk/main.py --auto-port
+
+# 终端 2：Vue 前端
+cd web && npm install && npm run dev
+# 浏览器打开 Vite 提示的地址（通常 http://127.0.0.1:5173）
+```
+
+Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_DESK_PORT` 决定代理目标。
+
+### Vue 标签页
+
+| 标签 | 作用 |
+|------|------|
+| 列表 | 浏览 memory JSON，进详情 |
+| 问答 | 左右布局：左提问/短答，右证据（缩略图/排行/到访日/出门事件）+ facts；点图进详情 |
+| 事件 | 顶栏筛选 + 宽表 + 右侧详情（备注/照片）；故事为子视图 |
+| 详情 | 单条 JSON 树形查看 |
+| 批量改地址 | 按日期聚合，无 GPS 老照片手工填 location |
+| 地址缓存 | 浏览/编辑 `.geocode_cache.json`，编辑时可看该坐标样本图 |
+| 验证 | Schema 校验 |
+| 健康报告 | 等同 `memory_stats` 摘要 |
+
+🔜 尚未做：详情里改 `people[]`（列表批量改人物已有）。
+
+### 地址纠错推荐流程
+
+**有 GPS、地名不对**（家附近已拆 POI 时尤其适用）：
+
+```
+1. Vue「地址缓存」或 location_mapping CLI 改 .geocode_cache.json
+2. python tools/photo2json/main.py --regeocode-locations --no-normalize-after
+3. python tools/memory_index/main.py sync
+```
+
+**拆开合并过的短地名**（让同一坐标重新走高德）：
+
+```bash
+python tools/location_mapping/main.py delete-by-location 河滨香景园 馨越公寓
+python tools/photo2json/main.py --regeocode-locations --no-normalize-after
+python tools/memory_index/main.py sync
+```
+
+**清理坏缓存 / 迁移旧版：**
+
+```bash
+python tools/location_mapping/main.py migrate --dry-run
+python tools/location_mapping/main.py delete-incomplete --dry-run   # 无 formatted_address 的条目
+python tools/location_mapping/main.py clear-manual --dry-run         # 清除 JSON 的 manual_location
+```
+
+`location_mapping` 其它命令：`list`、`search`、`update`、`delete`、`add`、`export`、`import`、`apply-canonical`。详见：
+
+```bash
+python tools/location_mapping/main.py help
+```
+
+**无坐标**：在 Vue「批量改地址」按日填写；写入后 JSON 带 `manual_location: true`，regeocode 会跳过。
+
+---
+
+## 九、Desk 与辅助工具
+
+### MemoryGraph Desk（API + 简易 HTML）
+
+Desk 除供 Vue 代理外，也自带简易页面（搜文件、按人物、问答、删除）：
+
+```bash
+python tools/memory_desk/main.py
+# 默认 http://127.0.0.1:8766/（Mac Hub 占 8765）
+# 端口被占用时：--auto-port 或直接用已运行的地址
+```
+
+| 功能 | 说明 |
+|------|------|
+| REST API | `/api/memory/*`、`/api/geocode/cache/*`、`/api/ask` 等，供 Vue Inspector |
+| 按人物搜照片 | 查 JSON `people`，需 `memory_index sync` |
+| 文件搜索 | 按文件名搜 `photos` / `memory` / `faces` |
+| 记忆问答 | 等同 `memory_ask`；Vue「问答」Tab 展示短答 + facts 证据 |
+| 删除 | 原图 + JSON → `data/.trash/`，索引即时清除；**不删** `faces/` 参考照 |
+
+### 其他 CLI
+
+```bash
+# 数据健康（vision / faces 覆盖率、按年待补数量）
+python tools/memory_stats/main.py
+python tools/memory_stats/main.py --year 2025
+
+# 按文件名搜索 + 打开（Desk 的 CLI 版）
+python tools/find/main.py IMG_3844 --open
+python tools/find/main.py IMG_3844 -i    # 交互模式
+```
+
+人脸库 cluster / `from-photo` 等见 [data/faces/README.md](../data/faces/README.md)。
+
+---
+
+## 十、相关文档
 
 - [README.md](../README.md) — 项目概览
 - [AGENTS.md](../AGENTS.md) — 架构约束与模块职责

@@ -29,7 +29,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/Users/tradesk/Documents/MemoryGraph/.venv"
+set -gx VIRTUAL_ENV "/Users/zhangxiu/Documents/xiuergit/pythonproject/MemoryGraph/.venv"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH

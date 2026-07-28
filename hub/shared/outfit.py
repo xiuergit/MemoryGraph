@@ -14,7 +14,9 @@ from hub.shared.config import (
     CLIP_ENABLED,
     CLIP_MODEL_NAME,
     CLIP_PRETRAINED,
+    OUTFIT_CACHE_MIN_FACE_CONF,
     OUTFIT_CACHE_DIR,
+    OUTFIT_FALLBACK_ENABLED,
     OUTFIT_MATCH_THRESHOLD,
     OUTFIT_MAX_CONFIDENCE,
 )
@@ -180,30 +182,55 @@ def cache_outfit_for_person(
     *,
     photo_id: str = "",
     name: str = "",
+    face_confidence: float = 0.0,
 ) -> None:
-    """缓存某人当天的衣着向量（脸认出后调用）。"""
+    """缓存某人当天的衣着向量（仅高置信人脸认出后调用）。"""
     if not day or not person_id:
+        return
+    if face_confidence < OUTFIT_CACHE_MIN_FACE_CONF:
         return
 
     cache = _load_day_cache(day)
     cache[person_id] = {
         "name": name,
         "photo_id": photo_id,
+        "face_confidence": round(face_confidence, 4),
         "embedding": embedding,
     }
     _save_day_cache(day, cache)
-    logger.info("已缓存当日衣着: day=%s person=%s", day, person_id)
+    logger.info(
+        "已缓存当日衣着: day=%s person=%s face_conf=%.3f",
+        day,
+        person_id,
+        face_confidence,
+    )
+
+
+def _confirmed_day_cache(day: str) -> dict[str, Any]:
+    """当日衣着缓存中，仅保留高置信人脸写入的条目（= 当天确实出现过的人）。"""
+    cache = _load_day_cache(day)
+    if not cache:
+        return {}
+    confirmed: dict[str, Any] = {}
+    for person_id, item in cache.items():
+        if not isinstance(item, dict):
+            continue
+        face_conf = float(item.get("face_confidence") or 0)
+        # 旧缓存无 face_confidence 字段，视为不可信，不参与比对
+        if face_conf >= OUTFIT_CACHE_MIN_FACE_CONF:
+            confirmed[person_id] = item
+    return confirmed
 
 
 def match_outfit_against_day(
     embedding: list[float],
     day: str,
 ) -> Person | None:
-    """将衣着向量与当日缓存比对，返回最佳匹配。"""
+    """将衣着向量与当日「已确认出现」的人的缓存比对，返回最佳匹配。"""
     if not day:
         return None
 
-    cache = _load_day_cache(day)
+    cache = _confirmed_day_cache(day)
     if not cache:
         return None
 
@@ -246,7 +273,7 @@ def apply_outfit_fallback(
     face_people: list[Person],
     unmatched_bboxes: list[tuple[float, float, float, float]],
 ) -> list[Person]:
-    """脸优先；脸不清时用当日衣着缓存兜底。已有的人不会重复添加。"""
+    """脸优先；可选：脸不清时用当日衣着缓存兜底（默认关闭）。"""
     if not CLIP_ENABLED:
         return face_people
 
@@ -258,9 +285,11 @@ def apply_outfit_fallback(
         p["id"]: dict(p, match_method=p.get("match_method", "face")) for p in face_people
     }
 
-    # 脸认出 → 缓存当日衣着
+    # 高置信人脸 → 缓存当日衣着（供极少数场景手工开启 fallback 时使用）
     for person in face_people:
         if person.get("match_method", "face") != "face":
+            continue
+        if float(person.get("confidence") or 0) < OUTFIT_CACHE_MIN_FACE_CONF:
             continue
         bbox = person.get("bbox")
         if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
@@ -274,13 +303,22 @@ def apply_outfit_fallback(
             embedding,
             photo_id=photo_id,
             name=person["name"],
+            face_confidence=float(person.get("confidence") or 0),
         )
 
     # 去掉内部字段 bbox 再返回
     for person in face_people:
         person.pop("bbox", None)
 
-    # 未匹配人脸 → 衣着比对
+    if not OUTFIT_FALLBACK_ENABLED:
+        cleaned: list[Person] = []
+        for person in result.values():
+            p = dict(person)
+            p.pop("bbox", None)
+            cleaned.append(Person(**p))
+        return cleaned
+
+    # 未匹配人脸 → 衣着比对（易误识别，需显式 OUTFIT_FALLBACK_ENABLED=true）
     for bbox in unmatched_bboxes:
         embedding = encode_outfit_from_bbox(image_path, bbox)
         if embedding is None:

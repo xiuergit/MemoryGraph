@@ -18,6 +18,10 @@ from hub.shared.location_cluster import (
     regeocode_locations_from_memory,
 )
 from hub.shared.backfill import backfill_folder
+from hub.shared.people_cleanup import (
+    strip_low_confidence_people_from_memory,
+    strip_outfit_people_from_memory,
+)
 from tools.photo2json.processor import process_folder
 
 
@@ -67,7 +71,12 @@ def main() -> int:
     parser.add_argument(
         "--has-people",
         action="store_true",
-        help="与 --backfill 联用：只处理 people 非空的照片（已匹配人脸库，不含仅检测到路人脸）",
+        help="与 --backfill 联用：只处理 people 非空的照片",
+    )
+    parser.add_argument(
+        "--needs-faces",
+        action="store_true",
+        help="与 --backfill faces 联用：只处理 face_detected 且 people 为空的照片",
     )
     parser.add_argument(
         "--refill",
@@ -102,9 +111,58 @@ def main() -> int:
         metavar="SEC",
         help="与 --backfill 联用：每 batch-size 张后额外休息 SEC 秒",
     )
+    parser.add_argument(
+        "--year",
+        default="",
+        help="与 --backfill 联用：只处理某年的 JSON（timestamp / photos/2025/ / 文件名）",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="与 --backfill 联用：续跑模式，跳过已有内容（与 --refill 互斥）",
+    )
+    parser.add_argument(
+        "--strip-outfit-matches",
+        action="store_true",
+        help="移除 JSON 中 match_method=outfit 的人物，并清空 data/cache/outfit/",
+    )
+    parser.add_argument(
+        "--strip-low-confidence",
+        action="store_true",
+        help="移除 JSON 中 confidence 低于阈值的 people 条目（清理遗留旧识别）",
+    )
+    parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.55,
+        metavar="T",
+        help="与 --strip-low-confidence 联用：低于 T 的条目删除（默认 0.55）",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="与 --strip-outfit-matches / --strip-low-confidence 联用：只统计不写文件",
+    )
     args = parser.parse_args()
 
     setup_logging()
+    if args.strip_outfit_matches:
+        stats = strip_outfit_people_from_memory(
+            MEMORY_DIR,
+            year=args.year.strip(),
+            dry_run=args.dry_run,
+        )
+        return 1 if stats.failed > 0 else 0
+
+    if args.strip_low_confidence:
+        stats = strip_low_confidence_people_from_memory(
+            MEMORY_DIR,
+            min_confidence=args.min_confidence,
+            year=args.year.strip(),
+            dry_run=args.dry_run,
+        )
+        return 1 if stats.failed > 0 else 0
+
     if args.regeocode_locations:
         stats = regeocode_locations_from_memory(
             MEMORY_DIR,
@@ -118,15 +176,20 @@ def main() -> int:
         return 0 if changed >= 0 else 1
 
     if args.backfill:
+        if args.resume and args.refill:
+            parser.error("--resume 与 --refill 不能同时使用")
         stats = backfill_folder(
             photos_dir=args.input,
             mode=args.backfill,
             only_empty=not args.refill,
             has_people=args.has_people,
+            needs_faces=args.needs_faces,
             limit=args.limit,
             sleep_sec=args.sleep,
             batch_size=args.batch_size,
             batch_rest_sec=args.batch_rest,
+            year=args.year.strip(),
+            resume=args.resume,
         )
         if args.backfill in ("vision", "all"):
             apply_location_normalization(MEMORY_DIR)

@@ -59,7 +59,12 @@ def _process_single_image(
     if output_path.exists():
         try:
             existing = json.loads(output_path.read_text(encoding="utf-8"))
-            if existing.get("manual_edit"):
+            if (
+                existing.get("manual_edit")
+                or existing.get("manual_people")
+                or existing.get("manual_vision")
+                or existing.get("manual_location")
+            ):
                 logger.info("跳过（手动编辑）: %s", photo_id)
                 return "skipped"
         except (json.JSONDecodeError, OSError):

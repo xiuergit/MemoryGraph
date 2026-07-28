@@ -9,9 +9,11 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from hub.shared.config import JSON_INDENT, MEMORY_DIR
 from hub.shared.geocode import is_acceptable_location, resolve_location, resolve_location_geocode
+from hub.shared.schema import LocationAdmin
 from hub.shared.utils import extract_exif_location
 
 logger = logging.getLogger(__name__)
@@ -187,6 +189,27 @@ class RegeocodeStats:
     no_coords: int = 0
 
 
+def _admin_needs_refresh(
+    old_admin: dict[str, Any],
+    new_admin: LocationAdmin,
+    *,
+    old_location: str,
+    new_location: str,
+) -> bool:
+    """formatted_address 缺失或与短地名相同 → 需要写回。"""
+    if not str(old_admin.get("province", "")).strip():
+        return True
+    old_fmt = str(old_admin.get("formatted_address", "")).strip()
+    new_fmt = str(new_admin.get("formatted_address", "")).strip()
+    if not old_fmt:
+        return True
+    if old_fmt in {old_location.strip(), new_location.strip()}:
+        return True
+    if new_fmt and old_fmt != new_fmt:
+        return True
+    return False
+
+
 def regeocode_locations_from_memory(
     memory_dir: Path | None = None,
     *,
@@ -216,7 +239,7 @@ def regeocode_locations_from_memory(
             logger.warning("读取 JSON 失败 %s: %s", json_path.name, exc)
             continue
 
-        if data.get("manual_edit"):
+        if data.get("manual_location"):
             stats.skipped += 1
             continue
 
@@ -248,7 +271,12 @@ def regeocode_locations_from_memory(
 
         old_location = str(data.get("location", "")).strip()
         old_admin = data.get("location_admin") or {}
-        needs_admin = not str(old_admin.get("province", "")).strip()
+        needs_admin = _admin_needs_refresh(
+            old_admin,
+            new_admin,
+            old_location=old_location,
+            new_location=new_location,
+        )
         if (
             old_location == new_location
             and is_acceptable_location(old_location)
@@ -289,7 +317,7 @@ def collect_location_records(memory_dir: Path) -> list[PhotoLocationRecord]:
             logger.warning("读取 JSON 失败 %s: %s", json_path.name, exc)
             continue
 
-        if data.get("manual_edit"):
+        if data.get("manual_location"):
             continue
 
         source = data.get("source") or {}
@@ -369,3 +397,61 @@ def apply_location_normalization(memory_dir: Path | None = None) -> int:
     else:
         logger.info("同日地点归一: 无需更新")
     return changed
+
+
+@dataclass
+class ClearManualLocationStats:
+    total: int = 0
+    cleared: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+
+def clear_manual_location_flags(
+    memory_dir: Path | None = None,
+    *,
+    dry_run: bool = False,
+) -> ClearManualLocationStats:
+    """移除 JSON 上的 manual_location 标记，便于 --regeocode-locations 从缓存重算。"""
+    memory_path = Path(memory_dir or MEMORY_DIR)
+    stats = ClearManualLocationStats()
+
+    if not memory_path.is_dir():
+        logger.warning("memory 目录不存在: %s", memory_path)
+        return stats
+
+    for json_path in sorted(memory_path.glob("*.json")):
+        stats.total += 1
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            stats.failed += 1
+            logger.warning("读取 JSON 失败 %s: %s", json_path.name, exc)
+            continue
+
+        if not data.get("manual_location"):
+            stats.skipped += 1
+            continue
+
+        if dry_run:
+            stats.cleared += 1
+            logger.info("[dry-run] 将清除 manual_location: %s", json_path.stem)
+            continue
+
+        data.pop("manual_location", None)
+        json_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=JSON_INDENT) + "\n",
+            encoding="utf-8",
+        )
+        stats.cleared += 1
+        logger.info("已清除 manual_location: %s", json_path.stem)
+
+    logger.info(
+        "清除 manual_location: 扫描=%d, 清除=%d, 跳过=%d, 失败=%d%s",
+        stats.total,
+        stats.cleared,
+        stats.skipped,
+        stats.failed,
+        " (dry-run)" if dry_run else "",
+    )
+    return stats

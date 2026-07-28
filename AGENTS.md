@@ -8,8 +8,8 @@
 照片 → AI 识别 → JSON → SQLite 索引 → 检索 → CLI 问答
 ```
 
-**当前闭环**：Mac 批量产出 JSON，同步 SQLite，CLI 问答可用。  
-**暂不做**：Web GUI、Event 聚合、向量 RAG、视频/音频 pipeline。
+**当前闭环**：Mac 批量产出 JSON，同步 SQLite，CLI 问答可用；**MemoryGraph Desk**（FastAPI）+ **Vue Inspector**（`web/`）管理 JSON/地址缓存/问答/事件；CLI 仍可用于批处理与问答。  
+**暂不做**：完整 Web 时间线、向量 RAG、视频/音频 pipeline。
 
 ## 目录结构
 
@@ -22,9 +22,15 @@ MemoryGraph/
 │   └── mac_server/          # 本地 HTTP，接收 iOS 上传
 ├── tools/
 │   ├── photo2json/          # Mac 批量处理 + backfill
-│   ├── face_enroll/         # 人脸库注册
+│   ├── face_enroll/         # 人脸库注册 / cluster
 │   ├── memory_index/        # SQLite sync / search
-│   └── memory_ask/          # CLI 问答
+│   ├── memory_events/       # Outing 事件聚合
+│   ├── memory_ask/          # CLI 问答
+│   ├── memory_desk/         # FastAPI：搜文件、问答、memory/geocode API
+│   ├── location_mapping/    # .geocode_cache.json CLI（migrate / delete-by-location 等）
+│   ├── memory_stats/        # 数据健康报告
+│   └── find/                # 按文件名搜索 CLI
+├── web/                     # Vue Inspector（连 Desk API）
 ├── data/
 │   ├── photos/              # 原图（gitignore）
 │   ├── memory/              # JSON（gitignore，唯一数据源）
@@ -47,6 +53,10 @@ python tools/photo2json/main.py
 python tools/memory_index/main.py sync
 python tools/memory_ask/main.py "面面最近去哪了"
 
+# 本地 Web API + Vue Inspector
+python tools/memory_desk/main.py --auto-port
+cd web && npm install && npm run dev
+
 # Mac Hub（iOS 上传，可选）
 python hub/mac_server/main.py
 ```
@@ -54,6 +64,24 @@ python hub/mac_server/main.py
 日常分批、backfill、环境变量见 `docs/operations.md`。
 
 ## 架构约束（必须遵守）
+
+### 0. AI 协作隐私（`.cursorignore`）
+
+根目录 `.cursorignore` 限制 Cursor AI **不得读取**以下路径：
+
+| 路径 | 原因 |
+|------|------|
+| `data/photos/**` | 家庭原图，禁止 AI 读取或分析 |
+| `data/faces/**/*` | 人脸参考照（`README.md`、`registry.example.json` 除外） |
+| `data/.trash/**` | 已删除的原图 / JSON |
+| `.env` | 本地密钥 |
+
+**协作约定：**
+
+- 理解照片内容 → 只看 `data/memory/*.json` 或 SQLite 索引，**不**打开原图
+- 改图像分析逻辑 → 读 `hub/shared/analyzer.py` 等代码，**不**用样本原图做试验
+- 本地批处理（`photo2json`、`face_enroll`）仍在本机读 `data/photos/`，与 Cursor 无关
+- 增删 `.cursorignore` 条目时，同步更新本节表格
 
 ### 1. 唯一 AI 入口（图像）
 
@@ -96,12 +124,15 @@ Python 实现：`hub/shared/schema.py`
 | `photo_id` | 文件名（不含扩展名） |
 | `timestamp` | 优先 EXIF，无则 `""` |
 | `device_id` | 来源设备，如 `iphone` / `mac` |
-| `location` | 可读地名（逆地理 + 同日归一） |
+| `location` | 可读地名（逆地理 + 可选同日归一；**纠错真源**为 `.geocode_cache.json`） |
 | `location_coords` | EXIF GPS 原始坐标 `"纬度,经度"`，不覆盖 |
 | `location_admin` | 可选；`province` / `city` / `district` / `formatted_address`（逆地理原文） |
+| `manual_location` | 可选；为 `true` 时 `--regeocode-locations` / 地址归一跳过 |
+| `manual_people` | 可选；为 `true` 时 `--backfill faces` 不覆盖 people |
+| `manual_vision` | 可选；为 `true` 时 `--backfill vision` 不覆盖场景等字段 |
 | `source` | 真实 path / width / height |
 | `people`, `scene`, `objects`, `actions`, `emotion`, `tags`, `quality` | 由 `analyze_image()` 等返回 |
-| `manual_edit` | 可选；为 `true` 时批处理/backfill 不覆盖 |
+| `manual_edit` | 兼容汇总：任一分项手改时可同步为 `true`；跳过逻辑以分项为准 |
 | 识别不到 | 字符串 `""`，数组 `[]`，对象保持结构 |
 
 **禁止**随意增删改正式字段名；大改须新建 `photo.v2.json`。
@@ -113,9 +144,17 @@ Python 实现：`hub/shared/schema.py`
 | `tools/photo2json/processor.py` | 批量遍历、写 JSON | 直接调用具体 AI 模型 |
 | `hub/shared/analyzer.py` | 返回 AI 分析字段 | 读 EXIF、写文件 |
 | `hub/shared/backfill.py` | 增量补全 vision/faces | 替代 processor 首次入库 |
+| `hub/shared/events.py` | Outing 聚类、overlay 重挂、stories | 改 photo JSON 语义 |
 | `hub/shared/index_db.py` | SQLite 同步 | 修改 JSON 真源语义 |
 | `hub/shared/agent.py` | 问答组织回答 | 图像推理 |
+| `hub/shared/photo_delete.py` | 删除照片（移入 `.trash` + 清索引） | 替代 JSON 真源 |
 | `hub/shared/utils.py` | 元数据、格式过滤 | AI 推理 |
+| `hub/shared/geocode.py` | 逆地理、`.geocode_cache.json` CRUD | 改 JSON 语义 |
+| `hub/shared/location_cluster.py` | 同日归一、regeocode、`manual_location` 清理 | 替代 geocode 缓存纠错 |
+| `hub/shared/location_canonical.py` | 缓存别名合并（可选） | 日常家附近 POI 拆分 |
+| `tools/location_mapping/` | 地址缓存 CLI | 直接改 memory JSON |
+| `tools/memory_desk/app.py` | Desk REST API | 重复 analyze_image |
+| `web/` | Vue Inspector UI | 直连 SQLite / 绕过 JSON |
 | `hub/mac_server/server.py` | 接收上传、落盘 | 重复实现分析逻辑 |
 | `apps/ios/` | 选图、EXIF、上传 | 跑视觉大模型 |
 
@@ -128,23 +167,31 @@ Python 实现：`hub/shared/schema.py`
 
 1. 改 AI 逻辑 → `hub/shared/analyzer.py`、`vision.py`、`face.py`、`outfit.py`
 2. 改输出格式 → `schemas/`、`hub/shared/schema.py`
-3. 改 EXIF/时间/地点 → `hub/shared/utils.py`、`geocode.py`、`location_cluster.py`
-4. 改索引/问答 → `hub/shared/index_db.py`、`query.py`、`agent.py`
-5. 改路径 → `hub/shared/config.py`
-6. 改 iOS 上传协议 → `hub/mac_server/server.py`、`docs/architecture.md`
+3. 改 EXIF/时间/地点 → `hub/shared/utils.py`、`geocode.py`、`location_cluster.py`、`location_canonical.py`
+4. 改地址缓存 / 批量 regeocode → `tools/location_mapping/`、`photo2json --regeocode-locations`
+5. 改索引/问答 → `hub/shared/index_db.py`、`query.py`、`agent.py`
+5b. 改事件聚合 / 故事 → `hub/shared/events.py`、`tools/memory_events/`、Vue「事件」Tab
+6. 改路径 → `hub/shared/config.py`
+7. 改 Desk / Vue → `tools/memory_desk/app.py`、`web/src/`
+8. 改 iOS 上传协议 → `hub/mac_server/server.py`、`docs/architecture.md`
 
 ## 当前状态
 
 - ✅ `analyze_image()`：Ollama 视觉 + InsightFace + CLIP 衣着兜底
-- ✅ 高德逆地理 + 同日 location 归一 + `location_coords`
-- ✅ `tools/photo2json` + `--backfill vision|faces|all`
-- ✅ `tools/memory_index` + `tools/memory_ask`
+- ✅ 高德逆地理 + `.geocode_cache.json` 纠错层 + `location_coords` / `location_admin`
+- ✅ `tools/photo2json` + `--regeocode-locations` / `--backfill vision|faces|all`（`--refill` / `--year` / `--has-people` / `--needs-faces`）
+- ✅ `tools/location_mapping` + Vue「地址缓存」
+- ✅ `tools/memory_index` + `tools/memory_ask`（默认带 file:// 链接，`--no-links` 关闭）
+- ✅ `tools/memory_events` + Vue「事件」Tab（outing / overlay / stories）
+- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表、问答、事件、详情、批量改地址、地址缓存、验证、健康报告
+- ✅ `tools/memory_stats` / `tools/find`
 - ⏸ Mac Hub：`hub/mac_server`（`POST /import`）
-- 🔜 iOS App、Web 时间线、Event 聚合、video/audio
+- ✅ Vue 问答 Tab（短答 + facts 证据）
+- ✅ Event 聚合 v1（outing + overlay 备注 + stories）
+- 🔜 人物纠错 UI、完整时间线、向量 RAG、iOS App、video/audio
 
 ## 未来扩展（未做或仅规划）
 
-- Event 聚合（同日同地 outing）
 - Web 时间线 GUI
 - 视频 / 音频 JSON pipeline
 - 向量语义检索（若需要再上）

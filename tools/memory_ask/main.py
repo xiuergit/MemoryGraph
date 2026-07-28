@@ -46,11 +46,16 @@ def main() -> int:
         action="store_true",
         help="打印 intent 与原始 facts",
     )
+    parser.add_argument(
+        "--no-links",
+        action="store_true",
+        help="不输出照片 file:// 链接（默认带可点击链接）",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     setup_logging(args.verbose)
-    result = ask(args.question, db_path=args.db)
+    result = ask(args.question, db_path=args.db, photo_links=not args.no_links)
 
     if args.debug:
         print(f"[intent={result.intent}, llm={result.used_llm}]")

@@ -38,8 +38,13 @@ MemoryGraph/
 ├── tools/
 │   ├── photo2json/       # Mac 批量：photos → memory
 │   ├── face_enroll/      # 人脸库注册
+│   ├── location_mapping/ # 高德地址缓存 CLI（迁移 / 删 / 补）
 │   ├── memory_index/     # SQLite 同步与搜索
-│   └── memory_ask/       # CLI 自然语言问答
+│   ├── memory_ask/       # CLI 自然语言问答
+│   ├── memory_desk/      # 本地 Web API：搜文件、问答、JSON/缓存 API
+│   ├── memory_stats/     # 数据健康报告
+│   └── find/             # 按文件名搜索 CLI
+├── web/                  # Vue Inspector（连 Desk API，管理 JSON/地址缓存）
 ├── data/
 │   ├── photos/           # 原图（运行时，不进 git）
 │   ├── memory/           # JSON（运行时，不进 git）
@@ -78,10 +83,18 @@ python tools/photo2json/main.py
 python tools/memory_index/main.py sync
 python tools/memory_ask/main.py "最近的照片"
 
+# 3c. 本地 Web（可选）
+python tools/memory_desk/main.py --auto-port   # API，默认 8766
+
+# Vue Inspector（列表 / 详情 / 批量改地址 / 地址缓存）
+cd web && npm install && npm run dev           # 浏览器打开 Vite 提示的地址
+
 # 4. 启动 Mac Hub（可选，iOS 上传用）
 python hub/mac_server/main.py
 # 服务地址: http://0.0.0.0:8765
 ```
+
+Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 
 ## 文档
 
@@ -92,9 +105,11 @@ python hub/mac_server/main.py
 
 ## 当前状态
 
-- ✅ `tools/photo2json`：Ollama 视觉 + InsightFace + CLIP 衣着兜底 + 高德逆地理
-- ✅ `--backfill`：增量补全 vision / faces
+- ✅ `tools/photo2json`：Ollama 视觉 + InsightFace + CLIP + 高德逆地理；`--regeocode-locations` / `--backfill`
+- ✅ `tools/location_mapping` + Desk「地址缓存」：`.geocode_cache.json` 纠错（真源），改完 `regeocode-locations` 写 JSON
 - ✅ `tools/memory_index`：SQLite 索引（JSON 为真源）
-- ✅ `tools/memory_ask`：CLI 自然语言问答（基础版）
-- ⏸ Mac Hub：`hub/mac_server`（接收 iOS 上传，骨架可用）
-- 🔜 iOS App、Web 时间线、Event 聚合
+- ✅ `tools/memory_ask`：CLI 问答（默认 file:// 链接）
+- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表、详情、批量改地址、地址缓存（含样本图）、验证、健康报告
+- ✅ `tools/memory_stats` / `tools/find`
+- ⏸ Mac Hub：`hub/mac_server`（骨架可用）
+- 🔜 Vue 问答 Tab（缩略图）、Event 聚合、人物纠错 UI、向量 RAG、iOS App、完整时间线

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ExifTags
 
@@ -20,6 +21,18 @@ try:
     pillow_heif.register_heif_opener()
 except ImportError:
     logger.debug("pillow-heif 未安装，HEIC/HEIF 格式将不可用")
+
+
+def json_matches_year(data: dict[str, Any], json_file: Path, year: str) -> bool:
+    """按 timestamp、source.path、文件名判断是否属于某年。"""
+    if str(data.get("timestamp", "")).startswith(year):
+        return True
+    path = str((data.get("source") or {}).get("path", "")).replace("\\", "/")
+    if f"/photos/{year}/" in path or f"/photos/{year}年/" in path or f"{year}年" in path:
+        return True
+    if json_file.name.startswith(year):
+        return True
+    return False
 
 
 def is_image_file(path: Path) -> bool:
