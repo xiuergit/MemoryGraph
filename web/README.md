@@ -1,6 +1,6 @@
 # MemoryGraph Inspector（Vue）
 
-本地 Web 前端，连接 **MemoryGraph Desk** API，用于浏览/校验 `data/memory/*.json` 和管理 `.geocode_cache.json` 地址缓存。
+本地 Web 前端，连接 **MemoryGraph Desk** API，用于浏览/校验 `data/memory/*.json`、问答、事件、地址缓存与人脸库。
 
 ## 前置
 
@@ -34,19 +34,23 @@ Vite 将 `/api` 和 `/photos` 代理到 Desk。端口优先级：
 
 | 标签 | 说明 |
 |------|------|
-| 列表 | 分页浏览 memory JSON |
+| 列表 | 分页浏览 memory JSON；**批量标人物** |
+| 问答 | 自然语言提问，短答 + 证据（缩略图/排行/出门事件等） |
+| 事件 | 出门/家事件浏览与筛选；overlay 备注、故事子视图 |
 | 详情 | 单条 JSON 树形查看；**检测人脸 → 加入人脸库** |
 | 批量改地址 | 按日期聚合，无 GPS 照片手工填 location |
 | 地址缓存 | 编辑 `.geocode_cache.json`，含坐标样本图 |
-| **维护工具** | 改完缓存/人脸后：regeocode、backfill faces、sync 索引 |
+| 人脸库 | 成员注册、参考照管理 |
+| 维护工具 | regeocode、backfill faces、sync 索引、重建事件聚合 |
 | 验证 | Schema 校验 |
 | 健康报告 | vision / faces 覆盖率等 |
 
-改完地址缓存后，在终端执行：
+改完地址缓存后，在终端或「维护工具」执行：
 
 ```bash
 python tools/photo2json/main.py --regeocode-locations --no-normalize-after
 python tools/memory_index/main.py sync
+python tools/memory_events/main.py sync   # 索引更新后推荐
 ```
 
 详见 [docs/operations.md](../docs/operations.md) 第八节。

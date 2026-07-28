@@ -52,8 +52,8 @@ AI 是工具，Memory 才是目的。
 
 ### 4. 永远先做最小闭环
 
-**当前闭环**：原图 → JSON → SQLite 索引 → CLI 问答；**Vue Inspector** 管理 JSON 与地址缓存。  
-下一阶段重点：Event 聚合 v1、Vue 问答 Tab、人物纠错；向量 RAG 与完整时间线后置。
+**当前闭环**：原图 → JSON → SQLite 索引 → 事件聚合 → CLI / Web 问答；**Vue Inspector** 管理 JSON、地址缓存、事件与人脸库。  
+下一阶段重点：详情页人物纠错、overlay/故事用起来；向量 RAG 与筛选结果时间轴后置。
 
 ---
 
@@ -78,19 +78,27 @@ AI 是工具，Memory 才是目的。
 - iOS 批量同步、去重、失败重试（App 待开发）
 - 当前替代方案：定期从 iPhone 导出原图到 Mac
 
-### 阶段 3：记忆库 ⚠️ 进行中
+### 阶段 3：记忆库 ✅（核心已完成）
 
 - ✅ SQLite 索引（`memory_index sync`）
-- ✅ CLI 关键词搜索与自然语言问答（`memory_ask`）
-- ✅ **MemoryGraph Desk**（FastAPI）+ **Vue Inspector**（列表、详情、批量改地址、地址缓存、验证、健康报告）
-- 🔜 Vue 问答 Tab、完整时间线 Web、Event 聚合
+- ✅ CLI 关键词搜索与自然语言问答（`memory_ask`，15+ 意图）
+- ✅ **MemoryGraph Desk**（FastAPI）+ **Vue Inspector**（列表、问答、事件、详情、批量改地址/标人物、地址缓存、人脸库、维护工具、验证、健康报告）
+- 🔜 **筛选结果时间轴**（检索命中后按时间分组；见下文「浏览边界」）
 
-### 阶段 4+：Event / 体验 🔜
+**浏览边界（不做相册）：** 全库照片墙式时间轴**不做**——日常翻全部照片用 iPhone 相册。MemoryGraph 的价值在「问 / 筛 / 管」；若未来做时间视图，只能是 **人物/物体/场景等筛选结果** 的时间分组展示（如「面面 + 自行车」沿时间看变化），可轻量为列表 Tab 的另一种布局。
 
-- 事件聚合（同日同地 → outing；数据已具备，脚本未做）
-- Vue 问答 Tab、人物纠错 UI
-- 向量语义检索（结构化问答优先）
-- 语音 / 玩偶 / 完整 Web GUI
+### 阶段 4：Event 聚合 ✅（v1）
+
+- ✅ `tools/memory_events sync`：同日同地 → outing / 家事件；overlay 重挂、stories 表结构
+- ✅ Vue「事件」Tab；问答意图 `recent_outings` / `person_home_timeline` 等
+- 🔜 overlay 备注与 stories 内容录入（后端已有，日常使用仍少）
+
+### 阶段 5+：体验与扩展 🔜
+
+- 详情页改 `people[]`（列表批量标人物已有）
+- **筛选结果时间轴**（非全库相册轴；见阶段 3「浏览边界」）
+- 向量语义检索（结构化问答优先；与「搜自行车」类需求配合）
+- 语音 / 玩偶等交互
 - 视频 / 音频 JSON（photo pipeline 稳定后再做）
 
 ---
@@ -107,6 +115,7 @@ MemoryGraph/
 │   ├── face_enroll/      # 人脸库注册
 │   ├── location_mapping/ # 地址缓存 CLI
 │   ├── memory_index/     # SQLite 同步与搜索
+│   ├── memory_events/    # Outing 事件聚合
 │   ├── memory_ask/       # CLI 问答
 │   ├── memory_desk/      # FastAPI
 │   ├── memory_stats/     # 健康报告
@@ -126,7 +135,7 @@ MemoryGraph/
 - 任何模型、框架可替换
 - Schema 是合同，变更须升版本（当前 photo v1.1，含 `location_coords`）
 - JSON 为唯一数据源；SQLite 可随时 `sync` 重建
-- Agent 已有 CLI 基础版；Event 与富交互仍为远期
+- Agent 已有 CLI + Web 版；Event v1 已落地；向量 RAG 与筛选结果时间轴仍为远期
 
 ---
 
