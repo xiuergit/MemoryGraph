@@ -174,6 +174,60 @@ def apply_location_to_photo(
     return MemoryEditResult(photo_id=photo_id, updated=True)
 
 
+def apply_timestamp_to_photo(
+    photo_id: str,
+    timestamp: str,
+    *,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+    only_if_empty: bool = False,
+) -> MemoryEditResult:
+    """手补/推断拍摄时间；刷新年龄，并设 manual_edit。"""
+    from hub.shared.timestamp_fill import apply_timestamp_to_json
+
+    ts = timestamp.strip()
+    if not ts:
+        raise MemoryEditError("时间不能为空")
+    path, data = _load_photo_json(photo_id, memory_dir)
+    existing = str(data.get("timestamp") or "").strip()
+    if only_if_empty and existing:
+        raise MemoryEditError(f"已有时间，跳过: {existing}")
+    apply_timestamp_to_json(data, ts)
+    _save_and_sync(path, data, db_path=db_path)
+    return MemoryEditResult(photo_id=photo_id, updated=True)
+
+
+def batch_apply_timestamp(
+    photo_ids: list[str],
+    timestamp: str,
+    *,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+    only_if_empty: bool = False,
+) -> BatchMemoryEditResult:
+    result = BatchMemoryEditResult()
+    seen: set[str] = set()
+    for raw in photo_ids:
+        pid = raw.strip()
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        try:
+            apply_timestamp_to_photo(
+                pid,
+                timestamp,
+                memory_dir=memory_dir,
+                db_path=db_path,
+                only_if_empty=only_if_empty,
+            )
+            result.updated.append(pid)
+        except MemoryEditError as exc:
+            result.failed.append((pid, str(exc)))
+        except Exception as exc:  # noqa: BLE001
+            result.failed.append((pid, str(exc)))
+    return result
+
+
 def update_photo_fields(
     photo_id: str,
     *,
@@ -188,6 +242,7 @@ def update_photo_fields(
     actions: list[str] | None = None,
     emotion: list[str] | None = None,
     tags: list[str] | None = None,
+    timestamp: str | None = None,
     memory_dir: Path | None = None,
     db_path: Path | None = None,
 ) -> MemoryEditResult:
@@ -195,9 +250,18 @@ def update_photo_fields(
     path, data = _load_photo_json(photo_id, memory_dir)
     changed = False
 
+    if timestamp is not None:
+        from hub.shared.timestamp_fill import apply_timestamp_to_json
+
+        ts = timestamp.strip()
+        if not ts:
+            raise MemoryEditError("时间不能为空")
+        apply_timestamp_to_json(data, ts)
+        changed = True
+
     if person_ids is not None:
-        timestamp = str(data.get("timestamp") or "")
-        data["people"] = build_manual_people(person_ids, timestamp=timestamp)
+        ts = str(data.get("timestamp") or "")
+        data["people"] = build_manual_people(person_ids, timestamp=ts)
         data["manual_people"] = True
         changed = True
 
@@ -234,7 +298,10 @@ def update_photo_fields(
     if not changed:
         raise MemoryEditError("没有要更新的字段")
 
+    had_manual_edit = bool(data.get("manual_edit"))
     refresh_manual_edit_flag(data)
+    if had_manual_edit:
+        data["manual_edit"] = True
     _save_and_sync(path, data, db_path=db_path)
     return MemoryEditResult(photo_id=photo_id, updated=True)
 

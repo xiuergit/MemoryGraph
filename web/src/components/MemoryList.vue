@@ -37,12 +37,23 @@
         />
         <el-select
           v-model="sortOrder"
-          placeholder="时间排序"
+          placeholder="排序"
           class="sort-select"
           @change="handleFilterChange"
         >
           <el-option label="时间倒序（新→旧）" value="desc" />
           <el-option label="时间正序（旧→新）" value="asc" />
+          <el-option label="按文件夹顺序" value="folder" />
+        </el-select>
+        <el-select
+          v-model="timestampFilter"
+          placeholder="时间状态"
+          clearable
+          class="timestamp-select"
+          @change="handleTimestampFilterChange"
+        >
+          <el-option label="无时间" value="empty" />
+          <el-option label="无时间（含前后邻居）" value="empty_context" />
         </el-select>
         <el-select
           v-model="personFilter"
@@ -118,6 +129,15 @@
         @click="openLocationDialog"
       >
         批量标地址
+      </el-button>
+      <el-button
+        type="warning"
+        size="small"
+        plain
+        :disabled="!selectedRows.length"
+        @click="openTimestampDialog"
+      >
+        批量补时间
       </el-button>
       <el-button
         type="danger"
@@ -203,6 +223,25 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="timestampDialogVisible" title="批量补时间" width="420px" destroy-on-close>
+      <p class="dialog-hint">写入 YYYY-MM-DD 即可；会标记 manual_edit，并刷新人物年龄。</p>
+      <el-form label-width="88px">
+        <el-form-item label="日期">
+          <el-date-picker
+            v-model="batchTimestamp"
+            type="date"
+            placeholder="选择日期"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="timestampDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSaving" @click="submitBatchTimestamp">确定</el-button>
+      </template>
+    </el-dialog>
+
     <div
       ref="scrollRef"
       class="photo-scroll"
@@ -215,7 +254,11 @@
             v-for="(row, index) in tableData"
             :key="row.photo_id"
             class="photo-card"
-            :class="{ selected: isSelected(row.photo_id) }"
+            :class="{
+              selected: isSelected(row.photo_id),
+              'no-time': !row.timestamp,
+              context: !!row.is_context,
+            }"
             :data-photo-id="row.photo_id"
             @click="onCardClick(row, index, $event)"
           >
@@ -241,7 +284,9 @@
             </div>
             <div class="card-info">
               <div class="card-info-top">
-                <span class="card-time">{{ formatTime(row.timestamp) }}</span>
+                <span class="card-time" :class="{ missing: !row.timestamp }">
+                  {{ row.is_context ? '邻居 · ' : '' }}{{ formatTime(row.timestamp) }}
+                </span>
                 <el-tag
                   :type="row.face_detected ? 'success' : 'info'"
                   size="small"
@@ -249,6 +294,13 @@
                 >
                   {{ row.face_detected ? '有脸' : '无人脸' }}
                 </el-tag>
+              </div>
+              <div
+                v-if="row.folder"
+                class="card-meta folder"
+                :title="row.folder"
+              >
+                {{ row.folder }}
               </div>
               <div class="card-meta" :class="{ empty: !row.location }" :title="row.location || ''">
                 {{ row.location || '无地址' }}
@@ -303,6 +355,7 @@ const personFilter = ref('')
 const faceFilter = ref('')
 const yearFilter = ref('')
 const sortOrder = ref('desc')
+const timestampFilter = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 const years = ref([])
@@ -315,6 +368,7 @@ const deleting = ref(false)
 const batchSaving = ref(false)
 const peopleDialogVisible = ref(false)
 const locationDialogVisible = ref(false)
+const timestampDialogVisible = ref(false)
 const batchPersonIds = ref([])
 const peopleMode = ref('append')
 const batchLocation = ref('')
@@ -322,6 +376,7 @@ const batchProvince = ref('')
 const batchCity = ref('')
 const batchDistrict = ref('')
 const batchFormattedAddress = ref('')
+const batchTimestamp = ref('')
 const page = ref(1)
 /** 约 3 屏可滚动浏览，不强制塞进一屏 */
 const pageSize = ref(45)
@@ -401,6 +456,13 @@ async function loadData() {
     if (dateTo.value) {
       params.date_to = dateTo.value
     }
+    if (timestampFilter.value === 'empty' || timestampFilter.value === 'empty_context') {
+      params.timestamp = 'empty'
+    }
+    if (timestampFilter.value === 'empty_context') {
+      params.context_neighbors = true
+      params.sort = 'folder'
+    }
     const res = await axios.get('/api/memory/list', { params })
     tableData.value = res.data.items
     total.value = res.data.total
@@ -410,6 +472,13 @@ async function loadData() {
     tableData.value = []
     total.value = 0
   }
+}
+
+function handleTimestampFilterChange() {
+  if (timestampFilter.value === 'empty_context') {
+    sortOrder.value = 'folder'
+  }
+  handleFilterChange()
 }
 
 function handleYearChange() {
@@ -444,6 +513,7 @@ function resetSearch() {
   faceFilter.value = ''
   yearFilter.value = ''
   sortOrder.value = 'desc'
+  timestampFilter.value = ''
   dateFrom.value = ''
   dateTo.value = ''
   page.value = 1
@@ -669,6 +739,11 @@ function openLocationDialog() {
   locationDialogVisible.value = true
 }
 
+function openTimestampDialog() {
+  batchTimestamp.value = ''
+  timestampDialogVisible.value = true
+}
+
 function onBatchLocationChange(loc) {
   const item = locationItems.value.find((entry) => entry.location === loc)
   if (!item) {
@@ -734,6 +809,36 @@ async function submitBatchLocation() {
     await loadData()
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '批量标地址失败')
+  } finally {
+    batchSaving.value = false
+  }
+}
+
+async function submitBatchTimestamp() {
+  const ids = selectedRows.value
+    .filter((row) => !row.is_context)
+    .map((row) => row.photo_id)
+    .filter(Boolean)
+  if (!batchTimestamp.value) {
+    ElMessage.warning('请选择日期')
+    return
+  }
+  if (!ids.length) {
+    ElMessage.warning('请选择需要补时间的照片（邻居对照项不会写入）')
+    return
+  }
+  batchSaving.value = true
+  try {
+    const res = await axios.post('/api/memory/batch-update-timestamp', {
+      photo_ids: ids,
+      timestamp: batchTimestamp.value,
+      only_if_empty: false,
+    })
+    reportBatchResult(res)
+    timestampDialogVisible.value = false
+    await loadData()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '批量补时间失败')
   } finally {
     batchSaving.value = false
   }
@@ -810,6 +915,10 @@ onBeforeUnmount(() => {
 
 .sort-select {
   width: 180px;
+}
+
+.timestamp-select {
+  width: 200px;
 }
 
 .person-select {
@@ -953,6 +1062,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
+.photo-card.no-time {
+  border-color: #c47a1a;
+}
+
+.photo-card.context {
+  opacity: 0.72;
+}
+
 .card-image {
   position: relative;
   width: 100%;
@@ -1040,6 +1157,10 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
 }
 
+.card-time.missing {
+  color: #f0a020;
+}
+
 .card-info-top :deep(.el-tag) {
   flex-shrink: 0;
   transform: scale(0.78);
@@ -1054,6 +1175,10 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.card-meta.folder {
+  color: #8b9cb3;
 }
 
 .card-meta.empty {

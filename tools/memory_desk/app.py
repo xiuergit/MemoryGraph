@@ -33,6 +33,7 @@ from hub.shared.memory_edit import (
     MemoryEditError,
     batch_apply_location,
     batch_apply_people,
+    batch_apply_timestamp,
     update_photo_fields,
 )
 from hub.shared.memory_stats import (
@@ -688,14 +689,19 @@ def api_memory_years() -> dict[str, Any]:
 def api_memory_list(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=1000),
-    search: str = Query("", description="搜索 photo_id/timestamp/location/people/scene"),
+    search: str = Query("", description="搜索 photo_id/timestamp/location/people/scene/路径"),
     location: str = Query("", description="按地址筛选"),
     date_from: str = Query("", description="起始日期 YYYY-MM-DD"),
     date_to: str = Query("", description="结束日期 YYYY-MM-DD"),
     year: str = Query("", description="按年筛选，如 2024"),
-    sort: str = Query("desc", description="按 timestamp 排序: desc|asc"),
+    sort: str = Query("desc", description="排序: desc|asc|folder"),
     person: str = Query("", description="按人物筛选（中文名或 person_id）；__EMPTY__ 表示无人物"),
     face: str = Query("", description="人脸筛选: yes|no|needs_faces"),
+    timestamp: str = Query("", description="时间筛选: empty=无时间"),
+    context_neighbors: bool = Query(
+        False,
+        description="与 timestamp=empty 联用：按文件夹顺序插入前后有时间的邻居，便于对照",
+    ),
 ) -> dict[str, Any]:
     conn = connect(MEMORY_DB)
     init_db(conn)
@@ -768,6 +774,11 @@ def api_memory_list(
             """
         )
 
+    timestamp_filter = timestamp.strip().lower()
+    empty_clause = "(p.timestamp = '' OR p.timestamp IS NULL)"
+    if timestamp_filter == "empty" and not context_neighbors:
+        clauses.append(empty_clause)
+
     if search:
         pattern = f"%{search}%"
         clauses.append(
@@ -777,6 +788,7 @@ def api_memory_list(
                 OR p.timestamp LIKE ?
                 OR p.location LIKE ?
                 OR p.scene LIKE ?
+                OR p.source_path LIKE ?
                 OR EXISTS (
                     SELECT 1 FROM photo_people pp
                     WHERE pp.photo_id = p.photo_id AND pp.person_name LIKE ?
@@ -784,14 +796,36 @@ def api_memory_list(
             )
             """
         )
-        params.extend([pattern, pattern, pattern, pattern, pattern])
+        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
 
-    total_sql = f"SELECT COUNT(DISTINCT p.photo_id) FROM photos p WHERE {' AND '.join(clauses)}"
-    total = conn.execute(total_sql, params).fetchone()[0]
+    def _row_to_item(row_dict: dict[str, Any], *, is_context: bool = False) -> dict[str, Any]:
+        photo_path = Path(row_dict.get("source_path", "") or "")
+        has_file = photo_path.is_file()
+        source = str(row_dict.get("source_path") or "")
+        folder = ""
+        if source:
+            norm = source.replace("\\", "/")
+            if "/photos/" in norm:
+                folder = str(Path(norm.split("/photos/", 1)[1]).parent)
+            else:
+                folder = str(Path(source).parent.name)
+        return {
+            "photo_id": row_dict["photo_id"],
+            "timestamp": row_dict["timestamp"] or "",
+            "scene": row_dict["scene"],
+            "location": row_dict["location"],
+            "location_province": row_dict["location_province"] or "",
+            "location_city": row_dict["location_city"] or "",
+            "location_district": row_dict["location_district"] or "",
+            "people": row_dict["people"] or "",
+            "face_detected": bool(row_dict["face_detected"]),
+            "has_file": has_file,
+            "source_path": str(photo_path) if has_file else "",
+            "folder": folder,
+            "is_context": is_context,
+        }
 
-    order = "ASC" if sort.strip().lower() == "asc" else "DESC"
-    # 空 timestamp 在正序时沉底，倒序时也沉底（始终排在有时间戳之后/之前的一端）
-    sql = f"""
+    select_sql = f"""
         SELECT
             p.photo_id,
             p.timestamp,
@@ -805,36 +839,89 @@ def api_memory_list(
             GROUP_CONCAT(DISTINCT pp.person_name) AS people
         FROM photos p
         LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE {' AND '.join(clauses)}
+        WHERE {{where}}
         GROUP BY p.photo_id
-        ORDER BY
-            CASE WHEN p.timestamp = '' OR p.timestamp IS NULL THEN 1 ELSE 0 END,
-            p.timestamp {order}
+    """
+
+    sort_key = sort.strip().lower()
+    if context_neighbors and timestamp_filter == "empty":
+        # 同筛选条件、不限空时间：按路径排序后，给每张空时间照片夹入前后邻居
+        where = " AND ".join(clauses)
+        rows = conn.execute(select_sql.format(where=where), params).fetchall()
+        conn.close()
+        ordered = sorted(
+            (dict(r) for r in rows),
+            key=lambda r: ((r.get("source_path") or ""), r["photo_id"]),
+        )
+        by_folder: dict[str, list[dict[str, Any]]] = {}
+        for row in ordered:
+            item = _row_to_item(row)
+            by_folder.setdefault(item["folder"] or "(unknown)", []).append(
+                {**row, "_item": item}
+            )
+
+        expanded: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _folder, group in sorted(by_folder.items(), key=lambda kv: kv[0]):
+            for i, row in enumerate(group):
+                ts = (row.get("timestamp") or "").strip()
+                if ts:
+                    continue
+                indices = {i}
+                if i > 0:
+                    indices.add(i - 1)
+                if i + 1 < len(group):
+                    indices.add(i + 1)
+                # 若邻居仍为空，再向外扩一格有时间的（最多各找 1 个有时间）
+                for j in range(i - 1, -1, -1):
+                    indices.add(j)
+                    if (group[j].get("timestamp") or "").strip():
+                        break
+                for j in range(i + 1, len(group)):
+                    indices.add(j)
+                    if (group[j].get("timestamp") or "").strip():
+                        break
+                for j in sorted(indices):
+                    pid = group[j]["photo_id"]
+                    if pid in seen:
+                        continue
+                    seen.add(pid)
+                    is_empty = not (group[j].get("timestamp") or "").strip()
+                    expanded.append(_row_to_item(group[j], is_context=not is_empty))
+
+        total = len(expanded)
+        page_rows = expanded[offset : offset + page_size]
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "items": page_rows,
+        }
+
+    total_sql = f"SELECT COUNT(DISTINCT p.photo_id) FROM photos p WHERE {' AND '.join(clauses)}"
+    total = conn.execute(total_sql, params).fetchone()[0]
+
+    if sort_key == "folder":
+        order_sql = "p.source_path ASC, p.photo_id ASC"
+    elif sort_key == "asc":
+        order_sql = (
+            "CASE WHEN p.timestamp = '' OR p.timestamp IS NULL THEN 1 ELSE 0 END, "
+            "p.timestamp ASC"
+        )
+    else:
+        order_sql = (
+            "CASE WHEN p.timestamp = '' OR p.timestamp IS NULL THEN 1 ELSE 0 END, "
+            "p.timestamp DESC"
+        )
+
+    sql = select_sql.format(where=" AND ".join(clauses)) + f"""
+        ORDER BY {order_sql}
         LIMIT ? OFFSET ?
     """
-    params.extend([page_size, offset])
-    rows = conn.execute(sql, params).fetchall()
+    rows = conn.execute(sql, [*params, page_size, offset]).fetchall()
     conn.close()
 
-    items = []
-    for row in rows:
-        row_dict = dict(row)
-        photo_path = Path(row_dict.get("source_path", ""))
-        has_file = photo_path.is_file()
-        items.append({
-            "photo_id": row_dict["photo_id"],
-            "timestamp": row_dict["timestamp"],
-            "scene": row_dict["scene"],
-            "location": row_dict["location"],
-            "location_province": row_dict["location_province"] or "",
-            "location_city": row_dict["location_city"] or "",
-            "location_district": row_dict["location_district"] or "",
-            "people": row_dict["people"] or "",
-            "face_detected": bool(row_dict["face_detected"]),
-            "has_file": has_file,
-            "source_path": str(photo_path) if has_file else "",
-        })
-
+    items = [_row_to_item(dict(row)) for row in rows]
     return {
         "total": total,
         "page": page,
@@ -952,6 +1039,12 @@ class BatchLocationByIdsRequest(BaseModel):
     formatted_address: str = ""
 
 
+class BatchTimestampByIdsRequest(BaseModel):
+    photo_ids: list[str] = Field(..., min_length=1)
+    timestamp: str = Field(..., min_length=1, description="YYYY-MM-DD 或完整 ISO 时间")
+    only_if_empty: bool = False
+
+
 class MemoryUpdateRequest(BaseModel):
     photo_id: str = Field(..., min_length=1)
     person_ids: Optional[List[str]] = None
@@ -965,6 +1058,7 @@ class MemoryUpdateRequest(BaseModel):
     actions: Optional[List[str]] = None
     emotion: Optional[List[str]] = None
     tags: Optional[List[str]] = None
+    timestamp: Optional[str] = None
 
 
 def _batch_edit_payload(updated: list[str], failed: list[tuple[str, str]]) -> dict[str, Any]:
@@ -1005,6 +1099,19 @@ def api_batch_update_location_by_ids(body: BatchLocationByIdsRequest) -> dict[st
     return _batch_edit_payload(result.updated, result.failed)
 
 
+@app.post("/api/memory/batch-update-timestamp")
+def api_batch_update_timestamp(body: BatchTimestampByIdsRequest) -> dict[str, Any]:
+    try:
+        result = batch_apply_timestamp(
+            body.photo_ids,
+            body.timestamp,
+            only_if_empty=body.only_if_empty,
+        )
+    except MemoryEditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _batch_edit_payload(result.updated, result.failed)
+
+
 @app.put("/api/memory/update")
 def api_memory_update(body: MemoryUpdateRequest) -> dict[str, Any]:
     try:
@@ -1021,6 +1128,7 @@ def api_memory_update(body: MemoryUpdateRequest) -> dict[str, Any]:
             actions=body.actions,
             emotion=body.emotion,
             tags=body.tags,
+            timestamp=body.timestamp,
         )
     except MemoryEditError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -122,6 +122,17 @@ def main() -> int:
         help="与 --backfill 联用：续跑模式，跳过已有内容（与 --refill 互斥）",
     )
     parser.add_argument(
+        "--fill-timestamps",
+        action="store_true",
+        help="补全空 timestamp：按同文件夹文件名顺序，前后邻居同日则写入该日（YYYY-MM-DD）",
+    )
+    parser.add_argument(
+        "--fill-mode",
+        choices=["neighbors-same-day"],
+        default="neighbors-same-day",
+        help="与 --fill-timestamps 联用（默认 neighbors-same-day）",
+    )
+    parser.add_argument(
         "--strip-outfit-matches",
         action="store_true",
         help="移除 JSON 中 match_method=outfit 的人物，并清空 data/cache/outfit/",
@@ -141,11 +152,21 @@ def main() -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="与 --strip-outfit-matches / --strip-low-confidence 联用：只统计不写文件",
+        help="与 --strip-outfit-matches / --strip-low-confidence / --fill-timestamps 联用：只统计不写文件",
     )
     args = parser.parse_args()
 
     setup_logging()
+    if args.fill_timestamps:
+        from hub.shared.timestamp_fill import fill_timestamps_from_neighbors
+
+        stats = fill_timestamps_from_neighbors(
+            mode=args.fill_mode,
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+        return 1 if stats.failed > 0 else 0
+
     if args.strip_outfit_matches:
         stats = strip_outfit_people_from_memory(
             MEMORY_DIR,
