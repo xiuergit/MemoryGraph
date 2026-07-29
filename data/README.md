@@ -9,7 +9,7 @@
 | `photos/` | 原图 | ❌ 核心资产 |
 | `memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
 | `faces/` | 人脸参考照 + registry | ⚠️ 删了要重注册 |
-| `memorygraph.db` | SQLite 检索索引 | ✅ `memory_index sync` 重建 |
+| `memorygraph.db` | SQLite 检索索引（含 events 表） | ✅ `memory_index sync` + `memory_events sync` 重建 |
 | `.geocode_cache.json` | 高德逆地理缓存 | ✅ 可删，会重新请求 |
 | `cache/outfit/` | CLIP 当日穿搭向量 | ✅ 可删，会重新计算 |
 
@@ -63,11 +63,12 @@ export AMAP_KEY=你的Key   # 或写入项目根目录 .env
 python tools/photo2json/main.py --force
 ```
 
-同步索引与问答：
+同步索引、事件与问答：
 
 ```bash
 python tools/memory_index/main.py sync
-python tools/memory_ask/main.py "最近的照片"
+python tools/memory_events/main.py sync
+python tools/memory_ask/main.py "最近出去玩了哪些"
 ```
 
 详细流程见 [docs/operations.md](../docs/operations.md)。

@@ -270,13 +270,19 @@ class EventOverlayBody(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class StoryLinkBody(BaseModel):
+    link_type: str
+    link_id: str
+    sort_order: int = 0
+
+
 class StoryBody(BaseModel):
     title: str = Field(..., min_length=1)
     body: str = ""
     time_start: str = ""
     time_end: str = ""
     people: list[str] = Field(default_factory=list)
-    links: list[dict[str, Any]] = Field(default_factory=list)
+    links: list[StoryLinkBody] = Field(default_factory=list)
 
 
 class StoryUpdateBody(BaseModel):
@@ -285,7 +291,12 @@ class StoryUpdateBody(BaseModel):
     time_start: Optional[str] = None
     time_end: Optional[str] = None
     people: Optional[List[str]] = None
-    links: Optional[List[dict]] = None
+    links: Optional[List[StoryLinkBody]] = None
+
+
+StoryLinkBody.model_rebuild()
+StoryBody.model_rebuild()
+StoryUpdateBody.model_rebuild()
 
 
 @app.post("/api/events/sync")
@@ -467,15 +478,19 @@ def api_stories_create(body: StoryBody) -> dict[str, Any]:
 
     conn = connect(MEMORY_DB)
     init_db(conn)
-    story = create_story(
-        conn,
-        title=body.title,
-        body=body.body,
-        time_start=body.time_start,
-        time_end=body.time_end,
-        people=body.people,
-        links=body.links,
-    )
+    try:
+        story = create_story(
+            conn,
+            title=body.title,
+            body=body.body,
+            time_start=body.time_start,
+            time_end=body.time_end,
+            people=body.people,
+            links=[link.model_dump() for link in body.links],
+        )
+    except Exception as exc:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"创建故事失败: {exc}") from exc
     conn.close()
     return {"status": "ok", "story": story}
 
@@ -508,7 +523,7 @@ def api_story_update(story_id: str, body: StoryUpdateBody) -> dict[str, Any]:
             time_start=body.time_start,
             time_end=body.time_end,
             people=body.people,
-            links=body.links,
+            links=[link.model_dump() for link in body.links] if body.links is not None else None,
         )
     except KeyError as exc:
         conn.close()

@@ -37,10 +37,13 @@ tools/memory_index/main.py sync
 data/memorygraph.db             ← 可删重建
         │
         ▼
-tools/memory_ask/main.py      CLI 自然语言问答
+tools/memory_events/main.py sync   ← 可选；出门/家事件聚合
         │
         ▼
-tools/memory_desk/ + web/     Vue Inspector（JSON / 地址缓存管理）
+tools/memory_ask/main.py        CLI 自然语言问答
+        │
+        ▼
+tools/memory_desk/ + web/       Vue Inspector（JSON / 问答 / 事件 / 地址缓存 / 维护）
 ```
 
 **地址纠错**（有 GPS）：改 `data/.geocode_cache.json`（Vue 或 `tools/location_mapping`）→ `--regeocode-locations --no-normalize-after` → `sync`。家附近已拆 POI 时勿再跑 `--normalize-locations`。
@@ -113,7 +116,7 @@ data/
 | `tools/memory_events/` | Outing 事件聚合 sync / stats / list |
 | `tools/memory_ask/` | CLI 问答 |
 | `tools/memory_desk/` | FastAPI：搜文件、问答 API、memory/geocode 缓存 API |
-| `web/` | Vue Inspector：列表、问答、详情、批量改地址、地址缓存、验证、健康报告 |
+| `web/` | Vue Inspector：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告 |
 | `tools/location_mapping/` | 地址缓存 CLI（migrate / delete-by-location / delete-incomplete） |
 | `tools/memory_stats/` | 数据健康报告 |
 | `tools/find/` | 按文件名搜索 CLI |
@@ -128,9 +131,19 @@ data/
 | **0** | Mac 批量 Photo→JSON | ✅ 完成 |
 | **1** | 本地视觉 + 人脸识别 | ✅ Ollama + InsightFace + CLIP |
 | **2** | iOS 上传 / 日常同步 | ⏸ 骨架有；当前用「导出到 Mac」 |
-| **3** | 记忆库索引与检索 | ⚠️ SQLite + CLI + Desk API + **Vue Inspector（含问答 Tab）**；完整时间线 🔜 |
-| **4** | Event 聚合 | ✅ 同日同地 outing + overlay/stories（Vue「事件」Tab） |
-| **4+** | 向量 RAG、语音/Web | 🔜 结构化问答优先；语义检索后置 |
+| **3** | 记忆库索引与检索 | ✅ SQLite + CLI + Desk + Vue（问答/事件/列表筛选）；筛选结果时间轴 🔜 |
+| **4** | Event 聚合 v1 | ✅ `memory_events sync` + Vue「事件」Tab + 相关问答意图 |
+| **5+** | 向量 RAG、筛选时间轴、video/audio | 🔜 结构化问答优先；**不做**全库相册式时间轴 |
+
+## 浏览与时间轴（产品边界）
+
+| 类型 | 做不做 | 说明 |
+|------|--------|------|
+| **全库相册式时间轴** | ❌ 不做 | 按年/月/日滚全部缩略图 ≈ 重做 Photos App，与「记忆系统」定位冲突；日常翻图用 iPhone 相册 |
+| **筛选结果时间轴** | 🔜 远期可选 | 先检索（人物/物体/scene/tags/地点）→ 命中结果按时间分组，看「第一次」「变化趋势」 |
+| **当前替代** | ✅ 已有 | 列表 Tab（分页+人物/关键词/年份筛选）、事件 Tab（出门粒度）、问答（证据缩略图）、CLI `memory_index timeline` |
+
+若实现筛选时间轴，建议轻量：例如在列表 Tab 增加「时间分组」视图，而非独立相册模块。
 
 日常操作详见 [operations.md](operations.md)。
 

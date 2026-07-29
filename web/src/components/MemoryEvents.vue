@@ -164,6 +164,9 @@
 
             <section class="overlay-editor">
               <h3>补意义</h3>
+              <p class="section-hint">
+                单次出门的短说明写这里。若叙事跨多天、跨多次出门，保存后点「做成故事」。
+              </p>
               <el-input v-model="overlayTitle" placeholder="标题，如：公园轮滑" class="mb" size="small" />
               <el-input
                 v-model="overlayBody"
@@ -296,17 +299,17 @@
             <header class="detail-head">
               <h2>{{ storyDetail.story_id === 'new' ? '新建故事' : '编辑故事' }}</h2>
             </header>
-            <section class="overlay-editor">
+            <section class="overlay-editor story-editor">
               <el-input v-model="storyTitle" placeholder="标题，如：第一次轮滑" class="mb" />
               <el-input
                 v-model="storyBody"
                 type="textarea"
-                :rows="12"
+                :rows="10"
                 placeholder="长叙事：想买鞋 → 爸爸不让 → 还是买了 → 帽子丢了…"
               />
               <div class="overlay-actions">
                 <el-button type="primary" size="small" :loading="savingStory" @click="saveStory">
-                  保存
+                  保存故事
                 </el-button>
                 <el-button
                   v-if="storyDetail.story_id && storyDetail.story_id !== 'new'"
@@ -319,21 +322,54 @@
                   删除
                 </el-button>
               </div>
-              <div v-if="storyDetail.links?.length" class="links-box">
-                <h4>已关联</h4>
-                <div v-for="(l, i) in storyDetail.links" :key="i" class="link-row">
-                  <el-tag size="small">{{ l.link_type }}</el-tag>
-                  <span class="link-id">{{ l.link_id }}</span>
-                  <el-button
-                    v-if="l.link_type === 'event'"
-                    link
-                    type="primary"
-                    @click="openEventFromStory(l.link_id)"
-                  >
-                    打开事件
+
+              <section class="links-box">
+                <div class="links-head">
+                  <h4>关联出门</h4>
+                  <el-button size="small" type="primary" plain @click="openLinkPicker">
+                    添加出门
                   </el-button>
                 </div>
-              </div>
+                <p class="section-hint">
+                  把故事锚定到具体几次出门；问答「……的故事」会用到这些关联。
+                </p>
+                <div v-if="sortedEventLinks.length" class="link-cards">
+                  <div
+                    v-for="(link, index) in sortedEventLinks"
+                    :key="`${link.link_id}-${index}`"
+                    class="link-card"
+                  >
+                    <div class="link-card-main">
+                      <div class="link-card-title">
+                        {{ linkSummary(link.link_id)?.display_title || link.link_id }}
+                        <el-tag v-if="linkSummary(link.link_id)?.is_home" size="small" type="info">
+                          家
+                        </el-tag>
+                      </div>
+                      <div class="link-card-meta muted">
+                        {{ linkSummary(link.link_id)?.day || '—' }}
+                        · {{ linkSummary(link.link_id)?.photo_count ?? '—' }} 张
+                        <span v-if="linkSummary(link.link_id)?.location">
+                          · {{ linkSummary(link.link_id).location }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="link-card-actions">
+                      <el-button link type="primary" size="small" @click="openEventFromStory(link.link_id)">
+                        打开
+                      </el-button>
+                      <el-button link type="danger" size="small" @click="removeStoryEventLink(link.link_id)">
+                        移除
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+                <el-empty
+                  v-else
+                  :image-size="56"
+                  description="还没有关联出门，点「添加出门」搜索并加入"
+                />
+              </section>
             </section>
           </template>
           <div v-else class="empty-detail">
@@ -387,6 +423,113 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="linkPickerVisible"
+      title="添加关联出门"
+      width="720px"
+      destroy-on-close
+      @opened="onLinkPickerOpened"
+    >
+      <p class="dialog-hint">
+        按日期、人物、地点或关键词筛选，点「添加」挂到当前故事。已关联的出门会显示「已添加」。
+      </p>
+      <div class="link-picker-filters">
+        <el-select
+          v-model="linkPickerYear"
+          placeholder="年"
+          clearable
+          size="small"
+          class="year-select"
+          @change="searchLinkPickerEvents"
+        >
+          <el-option v-for="y in years" :key="y" :label="`${y} 年`" :value="y" />
+        </el-select>
+        <el-select
+          v-model="linkPickerPerson"
+          placeholder="人物"
+          clearable
+          filterable
+          size="small"
+          class="person-select"
+          @change="searchLinkPickerEvents"
+        >
+          <el-option
+            v-for="p in registryPeople"
+            :key="p.person_id"
+            :label="p.name"
+            :value="p.name"
+          />
+        </el-select>
+        <el-select-v2
+          v-model="linkPickerLocation"
+          placeholder="地点"
+          clearable
+          filterable
+          size="small"
+          class="location-select"
+          :options="locationOptions"
+          @change="searchLinkPickerEvents"
+        />
+        <el-input
+          v-model="linkPickerKeyword"
+          placeholder="场景/动作，如 轮滑、哭"
+          clearable
+          size="small"
+          class="keyword-input"
+          @change="searchLinkPickerEvents"
+          @keyup.enter="searchLinkPickerEvents"
+        />
+        <el-button size="small" :loading="linkPickerLoading" @click="searchLinkPickerEvents">
+          搜索
+        </el-button>
+      </div>
+      <el-table
+        v-loading="linkPickerLoading"
+        :data="linkPickerEvents"
+        stripe
+        size="small"
+        max-height="360"
+        empty-text="没有匹配的出门，试试放宽筛选"
+      >
+        <el-table-column prop="day" label="日期" width="110" />
+        <el-table-column label="出门" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.display_title }}
+            <el-tag v-if="row.is_home" size="small" type="info" class="home-tag">家</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="photo_count" label="张数" width="72" align="right" />
+        <el-table-column label="人物" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ (row.people || []).join('、') || '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="" width="88" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="isEventLinked(row.event_id)"
+              size="small"
+              disabled
+            >
+              已添加
+            </el-button>
+            <el-button
+              v-else
+              size="small"
+              type="primary"
+              link
+              @click="addStoryEventLink(row)"
+            >
+              添加
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="linkPickerTotal > linkPickerEvents.length" class="dialog-footer-hint muted">
+        仅显示前 {{ linkPickerEvents.length }} 条，共 {{ linkPickerTotal }} 条；请用筛选缩小范围。
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -438,6 +581,146 @@ const savingOverlay = ref(false)
 const storyTitle = ref('')
 const storyBody = ref('')
 const savingStory = ref(false)
+const storyLinkSummaries = ref({})
+
+const linkPickerVisible = ref(false)
+const linkPickerLoading = ref(false)
+const linkPickerEvents = ref([])
+const linkPickerTotal = ref(0)
+const linkPickerYear = ref('')
+const linkPickerPerson = ref('')
+const linkPickerLocation = ref('')
+const linkPickerKeyword = ref('')
+
+const sortedEventLinks = computed(() => {
+  const links = (storyDetail.value?.links || []).filter((l) => l.link_type === 'event')
+  return [...links].sort((a, b) => {
+    const dayA = storyLinkSummaries.value[a.link_id]?.day || ''
+    const dayB = storyLinkSummaries.value[b.link_id]?.day || ''
+    return dayA.localeCompare(dayB)
+  })
+})
+
+function linkSummary(eventId) {
+  return storyLinkSummaries.value[eventId] || null
+}
+
+function isEventLinked(eventId) {
+  return (storyDetail.value?.links || []).some(
+    (l) => l.link_type === 'event' && l.link_id === eventId,
+  )
+}
+
+async function loadStoryLinkSummaries() {
+  const links = storyDetail.value?.links || []
+  const eventIds = links.filter((l) => l.link_type === 'event').map((l) => l.link_id)
+  if (!eventIds.length) {
+    storyLinkSummaries.value = {}
+    return
+  }
+  const summaries = {}
+  await Promise.all(
+    eventIds.map(async (eventId) => {
+      try {
+        const res = await axios.get(`/api/events/${encodeURIComponent(eventId)}`)
+        summaries[eventId] = {
+          day: res.data.day,
+          display_title: res.data.display_title,
+          photo_count: res.data.photo_count,
+          location: res.data.location,
+          is_home: res.data.is_home,
+        }
+      } catch {
+        summaries[eventId] = {
+          display_title: eventId,
+          missing: true,
+        }
+      }
+    }),
+  )
+  storyLinkSummaries.value = summaries
+}
+
+function ensureStoryLinks() {
+  if (!storyDetail.value) return
+  if (!Array.isArray(storyDetail.value.links)) {
+    storyDetail.value.links = []
+  }
+}
+
+function addStoryEventLink(row) {
+  if (!storyDetail.value || isEventLinked(row.event_id)) return
+  ensureStoryLinks()
+  const order = storyDetail.value.links.length
+  storyDetail.value.links.push({
+    link_type: 'event',
+    link_id: row.event_id,
+    sort_order: order,
+  })
+  storyLinkSummaries.value = {
+    ...storyLinkSummaries.value,
+    [row.event_id]: {
+      day: row.day,
+      display_title: row.display_title,
+      photo_count: row.photo_count,
+      location: row.location,
+      is_home: row.is_home,
+    },
+  }
+  ElMessage.success('已加入关联，记得点「保存故事」')
+}
+
+function removeStoryEventLink(eventId) {
+  if (!storyDetail.value?.links) return
+  storyDetail.value.links = storyDetail.value.links.filter(
+    (l) => !(l.link_type === 'event' && l.link_id === eventId),
+  )
+  const next = { ...storyLinkSummaries.value }
+  delete next[eventId]
+  storyLinkSummaries.value = next
+  ElMessage.success('已移除关联，记得点「保存故事」')
+}
+
+function openLinkPicker() {
+  if (!storyDetail.value) {
+    ElMessage.warning('请先选择或新建故事')
+    return
+  }
+  linkPickerVisible.value = true
+}
+
+function onLinkPickerOpened() {
+  linkPickerYear.value = ''
+  linkPickerPerson.value = ''
+  linkPickerLocation.value = ''
+  linkPickerKeyword.value = ''
+  searchLinkPickerEvents()
+}
+
+async function searchLinkPickerEvents() {
+  linkPickerLoading.value = true
+  try {
+    const res = await axios.get('/api/events', {
+      params: {
+        include_home: true,
+        day: linkPickerYear.value ? String(linkPickerYear.value) : undefined,
+        person: linkPickerPerson.value.trim() || undefined,
+        location: linkPickerLocation.value.trim() || undefined,
+        keyword: linkPickerKeyword.value.trim() || undefined,
+        limit: 80,
+        offset: 0,
+      },
+    })
+    linkPickerEvents.value = res.data.items || []
+    linkPickerTotal.value = res.data.total || 0
+  } catch (err) {
+    linkPickerEvents.value = []
+    linkPickerTotal.value = 0
+    ElMessage.error(err.response?.data?.detail || '搜索出门失败')
+  } finally {
+    linkPickerLoading.value = false
+  }
+}
 
 const locationOptions = computed(() =>
   (eventLocations.value || []).map((item) => ({
@@ -624,6 +907,7 @@ function onViewModeChange() {
     mode.value = 'event'
     selectedStoryId.value = ''
     storyDetail.value = null
+    storyLinkSummaries.value = {}
   } else {
     mode.value = 'story'
     selectedId.value = ''
@@ -813,6 +1097,7 @@ function openNewStory() {
   }
   storyTitle.value = ''
   storyBody.value = ''
+  storyLinkSummaries.value = {}
 }
 
 async function selectStory(storyId) {
@@ -827,6 +1112,7 @@ async function selectStory(storyId) {
     storyDetail.value = res.data
     storyTitle.value = res.data.title || ''
     storyBody.value = res.data.body || ''
+    await loadStoryLinkSummaries()
   } catch (err) {
     storyDetail.value = null
     ElMessage.error(err.response?.data?.detail || '加载故事失败')
@@ -852,6 +1138,26 @@ async function promoteToStory() {
   }
   storyTitle.value = defaultTitle
   storyBody.value = overlayBody.value
+  storyLinkSummaries.value = {
+    [detail.value.event_id]: {
+      day: detail.value.day,
+      display_title: detail.value.display_title,
+      photo_count: detail.value.photo_count,
+      location: detail.value.location,
+      is_home: detail.value.is_home,
+    },
+  }
+}
+
+function formatApiError(err, fallback) {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const text = detail.map((item) => item?.msg || JSON.stringify(item)).join('；')
+    if (text) return text
+  }
+  if (!err?.response) return `${fallback}（请确认 Desk API 已启动）`
+  return fallback
 }
 
 async function saveStory() {
@@ -882,7 +1188,7 @@ async function saveStory() {
       await selectStory(storyDetail.value.story_id)
     }
   } catch (err) {
-    ElMessage.error(err.response?.data?.detail || '保存故事失败')
+    ElMessage.error(formatApiError(err, '保存故事失败'))
   } finally {
     savingStory.value = false
   }
@@ -901,6 +1207,7 @@ async function removeStory() {
     ElMessage.success('已删除')
     storyDetail.value = null
     selectedStoryId.value = ''
+    storyLinkSummaries.value = {}
     mode.value = 'event'
     await loadStories()
   } catch (err) {
@@ -1207,27 +1514,91 @@ onMounted(async () => {
 }
 
 .links-box {
-  margin-top: 0.85rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.links-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
 }
 
 .links-box h4 {
-  margin: 0 0 0.35rem;
-  font-size: 0.85rem;
+  margin: 0;
+  font-size: 0.9rem;
 }
 
-.link-row {
+.section-hint {
+  margin: 0 0 0.55rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.story-editor .overlay-actions {
+  margin-top: 0.65rem;
+  margin-bottom: 0.25rem;
+}
+
+.link-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.link-card {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  margin-bottom: 0.3rem;
-  font-size: 0.8rem;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
 }
 
-.link-id {
+.link-card-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.link-card-title {
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.link-card-meta {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 160px;
+}
+
+.link-card-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.link-picker-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.dialog-footer-hint {
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
 }
 
 @media (max-width: 960px) {

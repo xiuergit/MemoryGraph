@@ -19,7 +19,10 @@
               memory_index sync            │
                      │                     │
                      ▼                     │
-              memory_ask（CLI 问答）        │
+              memory_events sync（可选）   │
+                     │                     │
+                     ▼                     │
+        memory_ask / Desk API / Vue Inspector
 ```
 
 - **不上云端**：照片与 AI 推理均在 Mac 本地；逆地理仅发送 GPS 坐标
@@ -40,11 +43,12 @@ MemoryGraph/
 │   ├── face_enroll/      # 人脸库注册
 │   ├── location_mapping/ # 高德地址缓存 CLI（迁移 / 删 / 补）
 │   ├── memory_index/     # SQLite 同步与搜索
+│   ├── memory_events/    # Outing 事件聚合 sync / stats / list
 │   ├── memory_ask/       # CLI 自然语言问答
-│   ├── memory_desk/      # 本地 Web API：搜文件、问答、JSON/缓存 API
+│   ├── memory_desk/      # 本地 Web API：搜文件、问答、事件、JSON/缓存 API
 │   ├── memory_stats/     # 数据健康报告
 │   └── find/             # 按文件名搜索 CLI
-├── web/                  # Vue Inspector（连 Desk API，管理 JSON/地址缓存）
+├── web/                  # Vue Inspector（连 Desk API：列表/问答/事件/维护等）
 ├── data/
 │   ├── photos/           # 原图（运行时，不进 git）
 │   ├── memory/           # JSON（运行时，不进 git）
@@ -79,14 +83,15 @@ export $(grep -v '^#' .env | xargs)
 # 3. 批量生成 JSON
 python tools/photo2json/main.py
 
-# 3b. 同步索引 + 问答（见 docs/operations.md）
+# 3b. 同步索引 + 事件 + 问答（见 docs/operations.md）
 python tools/memory_index/main.py sync
-python tools/memory_ask/main.py "最近的照片"
+python tools/memory_events/main.py sync
+python tools/memory_ask/main.py "最近出去玩了哪些"
 
 # 3c. 本地 Web（可选）
 python tools/memory_desk/main.py --auto-port   # API，默认 8766
 
-# Vue Inspector（列表 / 详情 / 批量改地址 / 地址缓存）
+# Vue Inspector（列表 / 问答 / 事件 / 详情 / 地址缓存 / 人脸库 / 维护工具）
 cd web && npm install && npm run dev           # 浏览器打开 Vite 提示的地址
 
 # 4. 启动 Mac Hub（可选，iOS 上传用）
@@ -106,10 +111,11 @@ Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 ## 当前状态
 
 - ✅ `tools/photo2json`：Ollama 视觉 + InsightFace + CLIP + 高德逆地理；`--regeocode-locations` / `--backfill`
-- ✅ `tools/location_mapping` + Desk「地址缓存」：`.geocode_cache.json` 纠错（真源），改完 `regeocode-locations` 写 JSON
+- ✅ `tools/location_mapping` + Vue「地址缓存」：`.geocode_cache.json` 纠错（真源），改完 `regeocode-locations` 写 JSON
 - ✅ `tools/memory_index`：SQLite 索引（JSON 为真源）
-- ✅ `tools/memory_ask`：CLI 问答（默认 file:// 链接）
-- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表、详情、批量改地址、地址缓存（含样本图）、验证、健康报告
+- ✅ `tools/memory_events`：同日同地 outing / 家事件聚合；overlay 重挂、stories 数据结构
+- ✅ `tools/memory_ask`：CLI 问答（15+ 意图；默认 file:// 链接）
+- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
 - ✅ `tools/memory_stats` / `tools/find`
-- ⏸ Mac Hub：`hub/mac_server`（骨架可用）
-- 🔜 Vue 问答 Tab（缩略图）、Event 聚合、人物纠错 UI、向量 RAG、iOS App、完整时间线
+- ⏸ Mac Hub：`hub/mac_server`（`POST /import` 骨架可用；iOS App 待开发）
+- 🔜 详情页改 `people[]`、筛选结果时间轴视图、向量 RAG、video/audio pipeline

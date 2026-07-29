@@ -16,7 +16,9 @@ data/memory/*.json
     ↓
 memory_index sync（同步 SQLite 索引）
     ↓
-memory_ask（自然语言问答）
+memory_events sync（聚合出门/家事件，可选但推荐）
+    ↓
+memory_ask / Vue 问答（自然语言问答）
 ```
 
 **数据分工（重要）：**
@@ -482,16 +484,18 @@ Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_
 
 | 标签 | 作用 |
 |------|------|
-| 列表 | 浏览 memory JSON，进详情 |
+| 列表 | 浏览 memory JSON，进详情；**批量标人物**（写 JSON `people` 并 sync 索引） |
 | 问答 | 左右布局：左提问/短答，右证据（缩略图/排行/到访日/出门事件）+ facts；点图进详情 |
 | 事件 | 顶栏筛选 + 宽表 + 右侧详情（备注/照片）；故事为子视图 |
-| 详情 | 单条 JSON 树形查看 |
+| 详情 | 单条 JSON 树形查看；检测人脸 → 加入人脸库 |
 | 批量改地址 | 按日期聚合，无 GPS 老照片手工填 location |
 | 地址缓存 | 浏览/编辑 `.geocode_cache.json`，编辑时可看该坐标样本图 |
+| 人脸库 | 注册成员、管理参考照、`face_enroll build` |
+| 维护工具 | regeocode、backfill faces、sync 索引、**重建事件聚合** |
 | 验证 | Schema 校验 |
 | 健康报告 | 等同 `memory_stats` 摘要 |
 
-🔜 尚未做：详情里改 `people[]`（列表批量改人物已有）。
+🔜 尚未做：详情页单条改 `people[]`（列表批量标人物已有）。
 
 ### 地址纠错推荐流程
 
@@ -501,6 +505,7 @@ Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_
 1. Vue「地址缓存」或 location_mapping CLI 改 .geocode_cache.json
 2. python tools/photo2json/main.py --regeocode-locations --no-normalize-after
 3. python tools/memory_index/main.py sync
+4. python tools/memory_events/main.py sync   # 地点变更后推荐
 ```
 
 **拆开合并过的短地名**（让同一坐标重新走高德）：
@@ -509,6 +514,7 @@ Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_
 python tools/location_mapping/main.py delete-by-location 河滨香景园 馨越公寓
 python tools/photo2json/main.py --regeocode-locations --no-normalize-after
 python tools/memory_index/main.py sync
+python tools/memory_events/main.py sync
 ```
 
 **清理坏缓存 / 迁移旧版：**
