@@ -730,12 +730,13 @@ function openPeopleDialog() {
   peopleDialogVisible.value = true
 }
 
-function openLocationDialog() {
+async function openLocationDialog() {
   batchLocation.value = ''
   batchProvince.value = ''
   batchCity.value = ''
   batchDistrict.value = ''
   batchFormattedAddress.value = ''
+  await loadLocations()
   locationDialogVisible.value = true
 }
 
@@ -806,7 +807,7 @@ async function submitBatchLocation() {
     })
     reportBatchResult(res)
     locationDialogVisible.value = false
-    await loadData()
+    await Promise.all([loadData(), loadLocations()])
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '批量标地址失败')
   } finally {

@@ -30,12 +30,14 @@ MemoryGraph/
 │   ├── memory_desk/         # FastAPI：搜文件、问答、memory/geocode API
 │   ├── location_mapping/    # .geocode_cache.json CLI（migrate / delete-by-location 等）
 │   ├── memory_stats/        # 数据健康报告
+│   ├── memory_dedup/        # 去重候选（hash / 连拍 / 无时间近哈希，不删除）
 │   └── find/                # 按文件名搜索 CLI
 ├── web/                     # Vue Inspector（连 Desk API）
 ├── data/
 │   ├── photos/              # 原图（gitignore）
 │   ├── memory/              # JSON（gitignore，唯一数据源）
 │   ├── faces/               # 人脸参考照
+│   ├── memory_annotations.json  # 事件意义/故事（gitignore，跨机必拷）
 │   └── memorygraph.db       # 索引（可 sync 重建）
 └── docs/
 ```
@@ -147,6 +149,7 @@ Python 实现：`hub/shared/schema.py`
 | `hub/shared/analyzer.py` | 返回 AI 分析字段 | 读 EXIF、写文件 |
 | `hub/shared/backfill.py` | 增量补全 vision/faces | 替代 processor 首次入库 |
 | `hub/shared/events.py` | Outing 聚类、overlay 重挂、stories | 改 photo JSON 语义 |
+| `hub/shared/annotations.py` | `memory_annotations.json` 读写 / 灌库 | 改 photo JSON / 替代 events 聚类 |
 | `hub/shared/index_db.py` | SQLite 同步 | 修改 JSON 真源语义 |
 | `hub/shared/agent.py` | 问答组织回答 | 图像推理 |
 | `hub/shared/photo_delete.py` | 删除照片（移入 `.trash` + 清索引） | 替代 JSON 真源 |
@@ -172,7 +175,7 @@ Python 实现：`hub/shared/schema.py`
 3. 改 EXIF/时间/地点 → `hub/shared/utils.py`、`geocode.py`、`location_cluster.py`、`location_canonical.py`
 4. 改地址缓存 / 批量 regeocode → `tools/location_mapping/`、`photo2json --regeocode-locations`
 5. 改索引/问答 → `hub/shared/index_db.py`、`query.py`、`agent.py`
-5b. 改事件聚合 / 故事 → `hub/shared/events.py`、`tools/memory_events/`、Vue「事件」Tab
+5b. 改事件聚合 / 故事 / 意义落盘 → `hub/shared/events.py`、`annotations.py`、`tools/memory_events/`、Vue「事件」Tab
 6. 改路径 → `hub/shared/config.py`
 7. 改 Desk / Vue → `tools/memory_desk/app.py`、`web/src/`
 8. 改 iOS 上传协议 → `hub/mac_server/server.py`、`docs/architecture.md`
@@ -184,9 +187,9 @@ Python 实现：`hub/shared/schema.py`
 - ✅ `tools/photo2json` + `--regeocode-locations` / `--backfill vision|faces|all`（`--refill` / `--year` / `--has-people` / `--needs-faces`）
 - ✅ `tools/location_mapping` + Vue「地址缓存」
 - ✅ `tools/memory_index` + `tools/memory_ask`（默认带 file:// 链接，`--no-links` 关闭）
-- ✅ `tools/memory_events` + Vue「事件」Tab（outing / 家事件；overlay 重挂、stories 表结构）
-- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
-- ✅ `tools/memory_stats` / `tools/find`
+- ✅ `tools/memory_events` + Vue「事件」Tab（outing / 家 / 无时间按地点；`memory_annotations.json` 真源 + overlay 重挂、stories；手改地名同日同名合并）
+- ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、去重、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
+- ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`（去重候选报告）
 - ⏸ Mac Hub：`hub/mac_server`（`POST /import`）；iOS App 待开发
 - 🔜 详情页改 `people[]`、筛选结果时间轴视图、向量 RAG、video/audio pipeline
 

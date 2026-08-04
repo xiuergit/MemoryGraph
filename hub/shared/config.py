@@ -34,6 +34,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 PHOTOS_DIR = DATA_DIR / "photos"
 MEMORY_DIR = DATA_DIR / "memory"
 MEMORY_DB = DATA_DIR / "memorygraph.db"
+# 事件意义 / 故事真源（可跨机同步；SQLite 可由其重建）
+MEMORY_ANNOTATIONS_FILE = DATA_DIR / "memory_annotations.json"
 
 # 支持的图片扩展名（小写，含点号）
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(

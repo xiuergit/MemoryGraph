@@ -148,6 +148,11 @@ class PhotoPoint:
     coords: tuple[float, float] | None
     coords_str: str
     people: list[str] = field(default_factory=list)
+    manual_location: bool = False
+
+
+SOURCE_AUTO = "auto"
+SOURCE_UNTIMED_LOC = "untimed_loc"
 
 
 @dataclass
@@ -163,6 +168,7 @@ class BuiltEvent:
     is_home: bool
     photo_ids: list[str]  # sorted by timestamp
     photo_timestamps: dict[str, str]
+    source: str = SOURCE_AUTO
 
 
 def _home_site_key(location: str, markers: tuple[str, ...]) -> str:
@@ -171,6 +177,43 @@ def _home_site_key(location: str, markers: tuple[str, ...]) -> str:
         if m and (loc == m or m in loc):
             return m
     return ""
+
+
+def _merge_manual_location_clusters(
+    clusters: list[list[PhotoPoint]],
+) -> list[list[PhotoPoint]]:
+    """手改地名：同日同名强制合并（忽略 GPS 距离）。
+
+    若某 location 在当日至少有一张 manual_location 照片，
+    则所有该精确地名的照片并入同一簇。
+    """
+    if not clusters:
+        return []
+
+    merge_names: set[str] = set()
+    for cluster in clusters:
+        for p in cluster:
+            loc = (p.location or "").strip()
+            if loc and p.manual_location:
+                merge_names.add(loc)
+    if not merge_names:
+        return clusters
+
+    buckets: dict[str, list[PhotoPoint]] = defaultdict(list)
+    residuals: list[list[PhotoPoint]] = []
+    for cluster in clusters:
+        leftover: list[PhotoPoint] = []
+        for p in cluster:
+            loc = (p.location or "").strip()
+            if loc in merge_names:
+                buckets[loc].append(p)
+            else:
+                leftover.append(p)
+        if leftover:
+            residuals.append(leftover)
+
+    merged = [photos for name, photos in buckets.items() if photos]
+    return merged + residuals
 
 
 def _cluster_day_photos_spatial(records: list[PhotoPoint]) -> list[list[PhotoPoint]]:
@@ -250,7 +293,10 @@ def _cluster_day_photos(
     *,
     markers: tuple[str, ...] | None = None,
 ) -> list[list[PhotoPoint]]:
-    """同日聚类：住过的家与非家先拆开，互不合并；不同住址之间也不混。"""
+    """同日聚类：住过的家与非家先拆开，互不合并；不同住址之间也不混。
+
+    之后对手改地名做同名强制合并（GPS 再远也对）。
+    """
     if not records:
         return []
     marks = markers or home_location_markers()
@@ -265,7 +311,8 @@ def _cluster_day_photos(
     for group in by_home_key.values():
         home_clusters.extend(_cluster_day_photos_spatial(group))
 
-    return home_clusters + _cluster_day_photos_spatial(other_records)
+    clusters = home_clusters + _cluster_day_photos_spatial(other_records)
+    return _merge_manual_location_clusters(clusters)
 
 
 def _mean_coords(points: list[PhotoPoint]) -> str:
@@ -323,6 +370,7 @@ def build_events_from_points(points: list[PhotoPoint]) -> list[BuiltEvent]:
                     is_home=is_home,
                     photo_ids=photo_ids,
                     photo_timestamps={c.photo_id: c.timestamp for c in cluster},
+                    source=SOURCE_AUTO,
                 )
             )
 
@@ -330,21 +378,7 @@ def build_events_from_points(points: list[PhotoPoint]) -> list[BuiltEvent]:
     return events
 
 
-def load_photo_points(conn: sqlite3.Connection) -> list[PhotoPoint]:
-    rows = conn.execute(
-        """
-        SELECT
-            p.photo_id,
-            p.timestamp,
-            p.location,
-            p.location_coords,
-            GROUP_CONCAT(DISTINCT pp.person_name) AS people
-        FROM photos p
-        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE p.timestamp != ''
-        GROUP BY p.photo_id
-        """
-    ).fetchall()
+def _rows_to_photo_points(rows: list[Any]) -> list[PhotoPoint]:
     points: list[PhotoPoint] = []
     for row in rows:
         coords_str = (row["location_coords"] or "").strip()
@@ -358,9 +392,91 @@ def load_photo_points(conn: sqlite3.Connection) -> list[PhotoPoint]:
                 coords=_parse_coords(coords_str),
                 coords_str=coords_str,
                 people=people,
+                manual_location=bool(row["manual_location"]),
             )
         )
     return points
+
+
+def load_photo_points(conn: sqlite3.Connection) -> list[PhotoPoint]:
+    rows = conn.execute(
+        """
+        SELECT
+            p.photo_id,
+            p.timestamp,
+            p.location,
+            p.location_coords,
+            p.manual_location,
+            GROUP_CONCAT(DISTINCT pp.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
+        WHERE p.timestamp != ''
+        GROUP BY p.photo_id
+        """
+    ).fetchall()
+    return _rows_to_photo_points(rows)
+
+
+def load_untimed_located_points(conn: sqlite3.Connection) -> list[PhotoPoint]:
+    """无时间且有地址：按地点聚合成事件用。"""
+    rows = conn.execute(
+        """
+        SELECT
+            p.photo_id,
+            p.timestamp,
+            p.location,
+            p.location_coords,
+            p.manual_location,
+            GROUP_CONCAT(DISTINCT pp.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
+        WHERE (p.timestamp = '' OR p.timestamp IS NULL)
+          AND p.location != ''
+        GROUP BY p.photo_id
+        """
+    ).fetchall()
+    return _rows_to_photo_points(rows)
+
+
+def build_untimed_location_events(points: list[PhotoPoint]) -> list[BuiltEvent]:
+    """无时间有地址：同一 location 一桶（≥1 张）。day/time 留空，不写假时间。"""
+    by_loc: dict[str, list[PhotoPoint]] = defaultdict(list)
+    for p in points:
+        loc = (p.location or "").strip()
+        if not loc:
+            continue
+        by_loc[loc].append(p)
+
+    markers = home_location_markers()
+    events: list[BuiltEvent] = []
+    for location, cluster in by_loc.items():
+        if not cluster:
+            continue
+        photo_sorted = sorted(cluster, key=lambda c: c.photo_id)
+        photo_ids = [c.photo_id for c in photo_sorted]
+        people_set: set[str] = set()
+        for c in cluster:
+            people_set.update(n for n in c.people if n)
+        is_home = is_home_location(location, markers)
+        events.append(
+            BuiltEvent(
+                event_id=_event_id_for_photos(photo_ids),
+                day="",
+                location=location,
+                location_coords=_mean_coords(cluster),
+                time_start="",
+                time_end="",
+                photo_count=len(photo_ids),
+                people=sorted(people_set),
+                is_home=is_home,
+                photo_ids=photo_ids,
+                photo_timestamps={c.photo_id: c.timestamp for c in cluster},
+                source=SOURCE_UNTIMED_LOC,
+            )
+        )
+
+    events.sort(key=lambda e: (-e.photo_count, e.location, e.event_id))
+    return events
 
 
 @dataclass
@@ -369,6 +485,7 @@ class EventSyncStats:
     event_photos: int = 0
     home_events: int = 0
     outing_events: int = 0
+    untimed_location_events: int = 0
     overlays_rematched: int = 0
     overlays_orphaned: int = 0
     photos_with_ts: int = 0
@@ -440,9 +557,19 @@ def rematch_overlays(conn: sqlite3.Connection) -> tuple[int, int]:
 
 
 def sync_events(conn: sqlite3.Connection) -> EventSyncStats:
-    """重建 events / event_photos，并重挂 overlays。保留 overlays/stories 行。"""
+    """重建 events / event_photos，并重挂 overlays。
+
+    overlays/stories 真源为 data/memory_annotations.json：
+    sync 前灌库（或从库 bootstrap 文件），重建后按锚点重挂并写回文件。
+    """
+    from hub.shared.annotations import ensure_annotations_loaded, flush_annotations_from_db
+
+    ann_note = ensure_annotations_loaded(conn)
+    logger.info("annotations: %s", ann_note)
+
     points = load_photo_points(conn)
-    built = build_events_from_points(points)
+    untimed_points = load_untimed_located_points(conn)
+    built = build_events_from_points(points) + build_untimed_location_events(untimed_points)
 
     conn.execute("DELETE FROM event_photos")
     conn.execute("DELETE FROM events")
@@ -450,13 +577,14 @@ def sync_events(conn: sqlite3.Connection) -> EventSyncStats:
     built_at = _now_iso()
     photo_rows: list[tuple[str, str, str]] = []
     for ev in built:
+        source = (ev.source or SOURCE_AUTO).strip() or SOURCE_AUTO
         conn.execute(
             """
             INSERT INTO events (
                 event_id, day, location, location_coords,
                 time_start, time_end, photo_count, people_json,
                 is_home, cluster_radius_m, source, built_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'auto', ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ev.event_id,
@@ -469,6 +597,7 @@ def sync_events(conn: sqlite3.Connection) -> EventSyncStats:
                 json.dumps(ev.people, ensure_ascii=False),
                 1 if ev.is_home else 0,
                 CLUSTER_RADIUS_M,
+                source,
                 built_at,
             ),
         )
@@ -482,13 +611,17 @@ def sync_events(conn: sqlite3.Connection) -> EventSyncStats:
 
     rematched, orphaned = rematch_overlays(conn)
     conn.commit()
+    flush_annotations_from_db(conn)
 
     in_events = len({pid for _, pid, _ in photo_rows})
+    untimed_n = sum(1 for e in built if e.source == SOURCE_UNTIMED_LOC)
+    dated = [e for e in built if e.source != SOURCE_UNTIMED_LOC]
     return EventSyncStats(
         events=len(built),
         event_photos=len(photo_rows),
-        home_events=sum(1 for e in built if e.is_home),
-        outing_events=sum(1 for e in built if not e.is_home),
+        home_events=sum(1 for e in dated if e.is_home),
+        outing_events=sum(1 for e in dated if not e.is_home),
+        untimed_location_events=untimed_n,
         overlays_rematched=rematched,
         overlays_orphaned=orphaned,
         photos_with_ts=len(points),
@@ -498,14 +631,30 @@ def sync_events(conn: sqlite3.Connection) -> EventSyncStats:
 
 def get_event_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     total = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    home = conn.execute("SELECT COUNT(*) FROM events WHERE is_home = 1").fetchone()[0]
-    outing = conn.execute("SELECT COUNT(*) FROM events WHERE is_home = 0").fetchone()[0]
+    untimed_loc = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE source = ?",
+        (SOURCE_UNTIMED_LOC,),
+    ).fetchone()[0]
+    home = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE is_home = 1 AND source != ?",
+        (SOURCE_UNTIMED_LOC,),
+    ).fetchone()[0]
+    outing = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE is_home = 0 AND source != ?",
+        (SOURCE_UNTIMED_LOC,),
+    ).fetchone()[0]
     ep = conn.execute("SELECT COUNT(*) FROM event_photos").fetchone()[0]
     distinct_photos = conn.execute(
         "SELECT COUNT(DISTINCT photo_id) FROM event_photos"
     ).fetchone()[0]
     photos_ts = conn.execute(
         "SELECT COUNT(*) FROM photos WHERE timestamp != ''"
+    ).fetchone()[0]
+    untimed_located = conn.execute(
+        """
+        SELECT COUNT(*) FROM photos
+        WHERE (timestamp = '' OR timestamp IS NULL) AND location != ''
+        """
     ).fetchone()[0]
     overlays = conn.execute("SELECT COUNT(*) FROM event_overlays").fetchone()[0]
     orphan_overlays = conn.execute(
@@ -516,10 +665,16 @@ def get_event_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "events": total,
         "outing_events": outing,
         "home_events": home,
+        "untimed_location_events": untimed_loc,
         "event_photos": ep,
         "photos_in_events": distinct_photos,
         "photos_with_timestamp": photos_ts,
-        "coverage_pct": round(100.0 * distinct_photos / photos_ts, 1) if photos_ts else 0.0,
+        "untimed_located_photos": untimed_located,
+        "coverage_pct": (
+            round(100.0 * distinct_photos / (photos_ts + untimed_located), 1)
+            if (photos_ts + untimed_located)
+            else 0.0
+        ),
         "overlays": overlays,
         "orphan_overlays": orphan_overlays,
         "stories": stories,
@@ -569,9 +724,20 @@ def _event_list_clauses(
     person: str = "",
     keyword: str = "",
     months: list[int] | tuple[int, ...] | None = None,
+    time_scope: str = "all",
 ) -> tuple[str, list[Any]]:
+    """time_scope: all | dated | untimed — 控制是否含无时间地点事件。"""
     clauses = ["1=1"]
     params: list[Any] = []
+    scope = (time_scope or "all").strip().lower()
+    if scope not in ("all", "dated", "untimed"):
+        scope = "all"
+    if scope == "untimed":
+        clauses.append("e.source = ?")
+        params.append(SOURCE_UNTIMED_LOC)
+    elif scope == "dated":
+        clauses.append("(e.source IS NULL OR e.source = '' OR e.source = ?)")
+        params.append(SOURCE_AUTO)
     if not include_home:
         clauses.append("e.is_home = 0")
     day_sql, day_params = _day_filter_clause("e", day)
@@ -607,6 +773,7 @@ def list_events(
     person: str = "",
     keyword: str = "",
     months: list[int] | tuple[int, ...] | None = None,
+    time_scope: str = "all",
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -617,7 +784,9 @@ def list_events(
         person=person,
         keyword=keyword,
         months=months,
+        time_scope=time_scope,
     )
+    # 无时间地点事件 day 为空：排在有日期之后，再按张数
     rows = conn.execute(
         f"""
         SELECT
@@ -629,7 +798,11 @@ def list_events(
         FROM events e
         LEFT JOIN event_overlays o ON o.event_id = e.event_id
         WHERE {where}
-        ORDER BY e.day DESC, e.time_start DESC
+        ORDER BY
+            CASE WHEN e.day = '' OR e.day IS NULL THEN 1 ELSE 0 END,
+            e.day DESC,
+            e.photo_count DESC,
+            e.time_start DESC
         LIMIT ? OFFSET ?
         """,
         (*params, limit, offset),
@@ -646,6 +819,7 @@ def count_events(
     person: str = "",
     keyword: str = "",
     months: list[int] | tuple[int, ...] | None = None,
+    time_scope: str = "all",
 ) -> int:
     where, params = _event_list_clauses(
         day=day,
@@ -654,6 +828,7 @@ def count_events(
         person=person,
         keyword=keyword,
         months=months,
+        time_scope=time_scope,
     )
     return conn.execute(
         f"""
@@ -722,7 +897,8 @@ def _event_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     overlay_title = row["overlay_title"] if "overlay_title" in keys else ""
     overlay_body = row["overlay_body"] if "overlay_body" in keys else ""
     overlay_id = row["overlay_id"] if "overlay_id" in keys else None
-    display_title = overlay_title or f"{row['day']} · {row['location'] or '未知地点'}"
+    day_label = (row["day"] or "").strip() or "无时间"
+    display_title = overlay_title or f"{day_label} · {row['location'] or '未知地点'}"
 
     overlay = None
     if overlay_id:
@@ -888,6 +1064,9 @@ def upsert_event_overlay(
             ),
         )
     conn.commit()
+    from hub.shared.annotations import flush_annotations_from_db
+
+    flush_annotations_from_db(conn)
     return {
         "overlay_id": overlay_id,
         "event_id": event_id,
@@ -902,6 +1081,10 @@ def upsert_event_overlay(
 def delete_event_overlay(conn: sqlite3.Connection, event_id: str) -> bool:
     cur = conn.execute("DELETE FROM event_overlays WHERE event_id = ?", (event_id,))
     conn.commit()
+    if cur.rowcount > 0:
+        from hub.shared.annotations import flush_annotations_from_db
+
+        flush_annotations_from_db(conn)
     return cur.rowcount > 0
 
 
@@ -992,6 +1175,9 @@ def create_story(
     )
     _replace_story_links(conn, story_id, links or [])
     conn.commit()
+    from hub.shared.annotations import flush_annotations_from_db
+
+    flush_annotations_from_db(conn)
     result = get_story(conn, story_id)
     assert result is not None
     return result
@@ -1037,6 +1223,9 @@ def update_story(
     if links is not None:
         _replace_story_links(conn, story_id, links)
     conn.commit()
+    from hub.shared.annotations import flush_annotations_from_db
+
+    flush_annotations_from_db(conn)
     result = get_story(conn, story_id)
     assert result is not None
     return result
@@ -1070,6 +1259,10 @@ def delete_story(conn: sqlite3.Connection, story_id: str) -> bool:
     conn.execute("DELETE FROM story_links WHERE story_id = ?", (story_id,))
     cur = conn.execute("DELETE FROM stories WHERE story_id = ?", (story_id,))
     conn.commit()
+    if cur.rowcount > 0:
+        from hub.shared.annotations import flush_annotations_from_db
+
+        flush_annotations_from_db(conn)
     return cur.rowcount > 0
 
 

@@ -28,6 +28,7 @@ memory_ask / Vue 问答（自然语言问答）
 | `data/photos/` | 原图 | ❌ 核心资产，别删 |
 | `data/memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
 | `data/memorygraph.db` | 检索索引 | ✅ 随时 `sync` 重建 |
+| `data/memory_annotations.json` | 事件意义 / 故事 | ⚠️ 跨机必拷；`memory_events sync` 灌库 |
 | `data/.geocode_cache.json` | 高德地址缓存（**纠错真源**，v6 key） | ✅ 可删重建；日常在 Vue/CLI 改 |
 | `data/location_canonical.json` | 可选；合并别名（家附近「拆开 POI」时通常留空） | ✅ |
 | `data/.trash/` | Desk 删除的照片/JSON | ✅ 可恢复；彻底清空 `rm -rf data/.trash/` |
@@ -249,7 +250,7 @@ python tools/memory_index/main.py sync
 |------|------|
 | 有面面/家人（`people` 非空） | ✅ 优先 `--backfill vision --has-people` |
 | 纯风景、路人、文档截图 | ⏭ 可不跑，问答价值低 |
-| 连拍重复 | 可先快出 JSON，以后按时间去重再决定是否补 |
+| 连拍重复 | 可先快出 JSON，以后用 `python tools/memory_dedup/main.py` 出候选再人工删 |
 
 默认 `--backfill` **只补空字段**（`scene`/`tags`/`objects` 都空才跑），中断后可反复执行，已补过的会跳过。主库已基本齐时，续补优先 `--year 2021` / `2023`。
 
@@ -346,10 +347,22 @@ python tools/memory_ask/main.py "面面几岁了" --debug
 | **有 Ollama 的家用 Mac** | `photo2json`（重活）、`memory_index sync`、`memory_ask` |
 | **另一台（如外出用的）** | 改代码、轻量查询；没有 Ollama 也能 `sync` 和模板问答 |
 
-**同步数据：** 拷贝整个 `data/photos/` + `data/memory/` 即可（U 盘、AirDrop、网盘都行）。  
-到任一台 Mac 上执行 `python tools/memory_index/main.py sync` 重建索引。
+**同步数据：** 拷贝 `data/photos/` + `data/memory/` + `data/.geocode_cache.json` + **`data/memory_annotations.json`**（若有；事件「补意义」与故事）。  
+到任一台 Mac 上执行：
 
-`memorygraph.db` 可以不拷，到了再 sync。
+```bash
+python tools/memory_index/main.py sync
+python tools/memory_events/main.py sync   # 会从 memory_annotations.json 灌标注并重挂
+```
+
+`memorygraph.db` 可以不拷，到了再 sync。**不要只靠拷 db 传意义**——意义真源是 `memory_annotations.json`。
+
+公司机若已有 overlay 但还没有该文件，先导出再同步：
+
+```bash
+python tools/memory_events/main.py export-annotations
+# 或直接 sync 一次也会 bootstrap 写出文件
+```
 
 ---
 
@@ -357,7 +370,8 @@ python tools/memory_ask/main.py "面面几岁了" --debug
 
 ### 必须遵守
 
-1. **JSON 是唯一数据源** — SQLite 丢了不怕，`sync` 能重建。
+1. **JSON 是照片唯一数据源** — SQLite 丢了不怕，`sync` 能重建照片索引。  
+   事件「补意义」/ 故事的真源是 `data/memory_annotations.json`（与 `.geocode_cache.json` 同级，跨机必拷）。
 2. **单张失败不中断整批** — photo2json 会继续处理下一张，留意终端 WARNING。
 3. **Ollama 要先启动** — 否则 scene/tags 为空，Agent 会走模板兜底，答案偏干。
 4. **`.env` 不要提交 git** — 已在 `.gitignore` 里；Key 只放本地。
@@ -441,10 +455,20 @@ python tools/photo2json/main.py --force
 python tools/memory_index/main.py sync
 python tools/memory_index/main.py stats
 
-# 事件聚合（outing）
+# 事件聚合（outing / 家 / 无时间按地点）
+# 有时间：同日 + GPS≤800m；无 GPS 按同地名；manual_location 同日同名强制合并
+# 无时间有地址：按 exact location 聚成 source=untimed_loc（不写假时间）；Vue 可筛「无时间地点」
 python tools/memory_events/main.py sync
 python tools/memory_events/main.py stats
 python tools/memory_events/main.py list --limit 20
+
+# 去重候选（只报告不删除）
+# 字节重复 + 有时间连拍 + 无时间近哈希（dHash）；无时间列表按近哈希相邻便于补时间
+python tools/memory_dedup/main.py --year 2024
+python tools/memory_dedup/main.py --hash-only -o /tmp/dedup.txt
+python tools/memory_dedup/main.py --burst-only --burst-seconds 3 --limit 50
+python tools/memory_dedup/main.py --near-hamming 10   # 无时间近相似阈值（默认 10）
+python tools/memory_dedup/main.py --no-near           # 跳过近哈希（更快）
 
 # 问答（意图说明见 docs/agent-intents.md）
 python tools/memory_ask/main.py "有多少张有表情的"
@@ -487,6 +511,7 @@ Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_
 | 列表 | 浏览 memory JSON，进详情；**批量标人物**（写 JSON `people` 并 sync 索引） |
 | 问答 | 左右布局：左提问/短答，右证据（缩略图/排行/到访日/出门事件）+ facts；点图进详情 |
 | 事件 | 顶栏筛选 + 宽表 + 右侧详情（备注/照片）；故事为子视图 |
+| 去重 | 字节重复 / 连拍 / 无时间近相似；无时间按近哈希相邻便于补时间；确认后删进 `.trash` |
 | 详情 | 单条 JSON 树形查看；检测人脸 → 加入人脸库 |
 | 批量改地址 | 按日期聚合，无 GPS 老照片手工填 location |
 | 地址缓存 | 浏览/编辑 `.geocode_cache.json`，编辑时可看该坐标样本图 |

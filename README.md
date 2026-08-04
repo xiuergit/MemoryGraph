@@ -47,12 +47,14 @@ MemoryGraph/
 │   ├── memory_ask/       # CLI 自然语言问答
 │   ├── memory_desk/      # 本地 Web API：搜文件、问答、事件、JSON/缓存 API
 │   ├── memory_stats/     # 数据健康报告
+│   ├── memory_dedup/     # 去重候选报告（不删除）
 │   └── find/             # 按文件名搜索 CLI
 ├── web/                  # Vue Inspector（连 Desk API：列表/问答/事件/维护等）
 ├── data/
 │   ├── photos/           # 原图（运行时，不进 git）
 │   ├── memory/           # JSON（运行时，不进 git）
 │   ├── faces/            # 人脸参考照
+│   ├── memory_annotations.json  # 事件意义/故事真源（跨机必拷）
 │   └── memorygraph.db    # 检索索引（可 sync 重建）
 └── docs/                 # 项目说明
 ```
@@ -113,9 +115,9 @@ Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 - ✅ `tools/photo2json`：Ollama 视觉 + InsightFace + CLIP + 高德逆地理；`--regeocode-locations` / `--backfill`
 - ✅ `tools/location_mapping` + Vue「地址缓存」：`.geocode_cache.json` 纠错（真源），改完 `regeocode-locations` 写 JSON
 - ✅ `tools/memory_index`：SQLite 索引（JSON 为真源）
-- ✅ `tools/memory_events`：同日同地 outing / 家事件聚合；overlay 重挂、stories 数据结构
+- ✅ `tools/memory_events`：同日同地 outing / 家事件聚合；`memory_annotations.json` 真源 + overlay 重挂、stories
 - ✅ `tools/memory_ask`：CLI 问答（15+ 意图；默认 file:// 链接）
 - ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
-- ✅ `tools/memory_stats` / `tools/find`
+- ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`
 - ⏸ Mac Hub：`hub/mac_server`（`POST /import` 骨架可用；iOS App 待开发）
 - 🔜 详情页改 `people[]`、筛选结果时间轴视图、向量 RAG、video/audio pipeline

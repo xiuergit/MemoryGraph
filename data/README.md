@@ -10,6 +10,7 @@
 | `memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
 | `faces/` | 人脸参考照 + registry | ⚠️ 删了要重注册 |
 | `memorygraph.db` | SQLite 检索索引（含 events 表） | ✅ `memory_index sync` + `memory_events sync` 重建 |
+| `memory_annotations.json` | 事件意义 / 故事真源 | ⚠️ 手写；丢了意义没了（可从有标注的机器拷回） |
 | `.geocode_cache.json` | 高德逆地理缓存 | ✅ 可删，会重新请求 |
 | `cache/outfit/` | CLIP 当日穿搭向量 | ✅ 可删，会重新计算 |
 

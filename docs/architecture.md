@@ -48,6 +48,8 @@ tools/memory_desk/ + web/       Vue Inspector（JSON / 问答 / 事件 / 地址�
 
 **地址纠错**（有 GPS）：改 `data/.geocode_cache.json`（Vue 或 `tools/location_mapping`）→ `--regeocode-locations --no-normalize-after` → `sync`。家附近已拆 POI 时勿再跑 `--normalize-locations`。
 
+**事件意义 / 故事**：真源 `data/memory_annotations.json`；Desk/Vue 保存或 `memory_events sync` 会读写该文件，SQLite 仅作索引。
+
 **增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）；人脸库变更后用 `--backfill faces --refill`。
 
 ### 路径 B：iPhone App 上传（可选，骨架已有）
@@ -74,6 +76,7 @@ data/
 ├── memory/                  # 一图一 JSON，与 photo_id 一一对应
 ├── faces/                   # 人脸参考照 + registry.json
 ├── memorygraph.db           # SQLite 索引（sync 重建）
+├── memory_annotations.json  # 事件意义 / 故事真源（跨机必拷）
 ├── .geocode_cache.json      # 高德逆地理缓存（地址纠错真源，v6 key）
 ├── location_canonical.json  # 可选；合并别名用（家附近「拆开 POI」时通常留空）
 ├── .trash/                  # Desk 删除回收（photos/ + memory/）
@@ -113,7 +116,7 @@ data/
 | `tools/photo2json/` | Mac 批量处理与 backfill |
 | `tools/face_enroll/` | 人脸库注册 |
 | `tools/memory_index/` | 索引 sync / stats / search |
-| `tools/memory_events/` | Outing 事件聚合 sync / stats / list |
+| `tools/memory_events/` | Outing 事件聚合 sync / stats / list；annotations 导入导出 |
 | `tools/memory_ask/` | CLI 问答 |
 | `tools/memory_desk/` | FastAPI：搜文件、问答 API、memory/geocode 缓存 API |
 | `web/` | Vue Inspector：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告 |

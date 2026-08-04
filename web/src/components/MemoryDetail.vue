@@ -311,6 +311,7 @@ async function saveEdit() {
       data: res.data.data,
     }
     fillForm(res.data.data)
+    await loadLocations()
     ElMessage.success('已保存并同步索引')
   } catch (error) {
     const detail = error.response?.data?.detail

@@ -213,6 +213,7 @@ async function confirmUpdate() {
       ...res.data,
     }
     previewPhotosList.value = []
+    await loadLocations()
   } catch (error) {
     updateResult.value = {
       success: false,

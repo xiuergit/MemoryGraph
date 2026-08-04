@@ -311,6 +311,7 @@ def api_events_sync() -> dict[str, Any]:
         "status": "ok",
         "outing_events": stats.outing_events,
         "home_events": stats.home_events,
+        "untimed_location_events": stats.untimed_location_events,
         "events": stats.events,
         "photos_in_events": stats.photos_in_events,
         "photos_with_ts": stats.photos_with_ts,
@@ -337,10 +338,18 @@ def api_events_list(
     person: str = "",
     keyword: str = "",
     include_home: bool = False,
+    time_scope: str = Query(
+        "all",
+        description="all | dated | untimed（无时间按地点聚合）",
+    ),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     from hub.shared.events import count_events, list_events, list_orphan_overlays
+
+    scope = (time_scope or "all").strip().lower()
+    if scope not in ("all", "dated", "untimed"):
+        raise HTTPException(status_code=400, detail="time_scope 须为 all / dated / untimed")
 
     conn = connect(MEMORY_DB)
     init_db(conn)
@@ -351,6 +360,7 @@ def api_events_list(
         person=person.strip(),
         keyword=keyword.strip(),
         include_home=include_home,
+        time_scope=scope,
         limit=limit,
         offset=offset,
     )
@@ -361,6 +371,7 @@ def api_events_list(
         person=person.strip(),
         keyword=keyword.strip(),
         include_home=include_home,
+        time_scope=scope,
     )
     orphans = list_orphan_overlays(conn)
     conn.close()
@@ -598,6 +609,41 @@ def api_delete_batch(body: BatchDeleteRequest) -> dict[str, Any]:
     if not photo_ids:
         raise HTTPException(status_code=400, detail="photo_ids 不能为空")
     return _batch_delete_payload(batch_delete_photo_records(photo_ids))
+
+
+@app.get("/api/dedup/report")
+def api_dedup_report(
+    year: str = Query("", description="年份前缀，如 2024；空=全库"),
+    kind: str = Query("all", description="all | hash | burst"),
+    burst_seconds: int = Query(3, ge=0, le=60),
+    limit: int = Query(50, ge=0, le=500, description="最多返回组数；0=不截断"),
+    score_quality: bool = Query(
+        True,
+        description="连拍/近相似组内计算清晰度/曝光，KEEP 优先更清晰",
+    ),
+    near_hamming: int = Query(10, ge=0, le=32, description="无时间近哈希最大汉明距离"),
+) -> dict[str, Any]:
+    """去重候选报告（只扫描，不删除）。"""
+    from hub.shared.dedup import build_dedup_report, report_to_dict
+
+    kind_norm = (kind or "all").strip().lower()
+    if kind_norm not in ("all", "hash", "burst"):
+        raise HTTPException(status_code=400, detail="kind 须为 all / hash / burst")
+    report = build_dedup_report(
+        year=year.strip(),
+        burst_seconds=burst_seconds,
+        include_hash=kind_norm in ("all", "hash"),
+        include_burst=kind_norm in ("all", "burst"),
+        limit_groups=limit,
+        score_quality=score_quality,
+        near_hamming=near_hamming,
+        include_near=True,
+    )
+    payload = report_to_dict(report)
+    payload["status"] = "ok"
+    payload["kind"] = kind_norm
+    payload["score_quality"] = score_quality
+    return payload
 
 
 @app.get("/api/memory/locations")
@@ -998,44 +1044,29 @@ def api_batch_update_location(
         f"SELECT photo_id FROM photos WHERE {where_clause}", params
     ).fetchall()
     photo_ids = [row["photo_id"] for row in rows]
-
-    if not photo_ids:
-        conn.close()
-        return {"updated": 0, "photo_ids": [], "message": "没有匹配的记录"}
-
-    updated_count = 0
-    failed = []
-
-    for photo_id in photo_ids:
-        json_path = MEMORY_DIR / f"{photo_id}.json"
-        try:
-            data = json.loads(json_path.read_text(encoding="utf-8"))
-            data["location"] = new_location.strip()
-            data["location_admin"] = {
-                "province": province,
-                "city": city,
-                "district": district,
-                "formatted_address": formatted_address.strip() if formatted_address.strip() else new_location.strip(),
-            }
-            data["manual_location"] = True
-            json_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-            conn.execute(
-                "UPDATE photos SET location = ?, location_admin = ? WHERE photo_id = ?",
-                (new_location.strip(), json.dumps(data["location_admin"], ensure_ascii=False), photo_id),
-            )
-            updated_count += 1
-        except Exception as exc:
-            failed.append(f"{photo_id}: {exc}")
-
-    conn.commit()
     conn.close()
 
+    if not photo_ids:
+        return {"updated": 0, "photo_ids": [], "failed": [], "message": "没有匹配的记录"}
+
+    # 走 memory_edit：写 JSON + 正确同步 SQLite（province/city/district 列）
+    try:
+        result = batch_apply_location(
+            photo_ids,
+            new_location,
+            province=province,
+            city=city,
+            district=district,
+            formatted_address=formatted_address,
+        )
+    except MemoryEditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     return {
-        "updated": updated_count,
-        "failed": failed,
-        "photo_ids": photo_ids,
-        "message": f"成功更新 {updated_count} 条记录",
+        "updated": len(result.updated),
+        "failed": [f"{pid}: {err}" for pid, err in result.failed],
+        "photo_ids": result.updated,
+        "message": f"成功更新 {len(result.updated)} 条记录",
     }
 
 

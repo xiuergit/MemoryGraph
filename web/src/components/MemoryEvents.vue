@@ -25,19 +25,33 @@
           新建故事
         </el-button>
         <span v-if="stats && viewMode === 'outings'" class="stats-inline">
-          outing {{ stats.outing_events }} · 家 {{ stats.home_events }} · 覆盖
-          {{ stats.coverage_pct }}%
+          outing {{ stats.outing_events }} · 家 {{ stats.home_events }}
+          <template v-if="stats.untimed_location_events">
+            · 无时间地点 {{ stats.untimed_location_events }}
+          </template>
+          · 覆盖 {{ stats.coverage_pct }}%
           <template v-if="stats.orphan_overlays"> · 待认领 {{ stats.orphan_overlays }}</template>
         </span>
       </div>
 
       <div v-if="viewMode === 'outings'" class="filter-row">
         <el-select
+          v-model="timeScope"
+          size="small"
+          class="time-scope-select"
+          @change="onTimeScopeChange"
+        >
+          <el-option label="全部时间" value="all" />
+          <el-option label="有日期" value="dated" />
+          <el-option label="无时间地点" value="untimed" />
+        </el-select>
+        <el-select
           v-model="yearFilter"
           placeholder="年"
           clearable
           size="small"
           class="year-select"
+          :disabled="timeScope === 'untimed'"
           @change="onFilterChange"
         >
           <el-option v-for="y in years" :key="y" :label="`${y} 年`" :value="y" />
@@ -50,6 +64,7 @@
           value-format="YYYY-MM"
           clearable
           class="month-picker"
+          :disabled="timeScope === 'untimed'"
           @change="onFilterChange"
         />
         <el-date-picker
@@ -60,6 +75,7 @@
           value-format="YYYY-MM-DD"
           clearable
           class="day-picker"
+          :disabled="timeScope === 'untimed'"
           @change="onFilterChange"
         />
         <el-select
@@ -116,11 +132,21 @@
             :row-class-name="outingRowClass"
             @row-click="(row) => selectEvent(row.event_id)"
           >
-            <el-table-column prop="day" label="日期" width="110" sortable />
+            <el-table-column label="日期" width="110" sortable prop="day">
+              <template #default="{ row }">{{ dayLabel(row.day) }}</template>
+            </el-table-column>
             <el-table-column label="标题 / 地点" min-width="200" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.display_title }}
                 <el-tag v-if="row.is_home" size="small" type="info" class="home-tag">家</el-tag>
+                <el-tag
+                  v-if="row.source === 'untimed_loc'"
+                  size="small"
+                  type="warning"
+                  class="home-tag"
+                >
+                  无时间
+                </el-tag>
                 <el-tag v-if="row.overlay?.title" size="small" type="success" class="home-tag">
                   有备注
                 </el-tag>
@@ -134,7 +160,10 @@
             </el-table-column>
             <el-table-column label="时段" width="150" show-overflow-tooltip>
               <template #default="{ row }">
-                {{ shortTime(row.time_start) }}–{{ shortTime(row.time_end) }}
+                <template v-if="row.source === 'untimed_loc'">按地点聚合</template>
+                <template v-else>
+                  {{ shortTime(row.time_start) }}–{{ shortTime(row.time_end) }}
+                </template>
               </template>
             </el-table-column>
           </el-table>
@@ -154,8 +183,9 @@
             <header class="detail-head">
               <h2>{{ detail.display_title }}</h2>
               <p class="muted">
-                {{ detail.day }} · {{ detail.photo_count }} 张
+                {{ dayLabel(detail.day) }} · {{ detail.photo_count }} 张
                 <span v-if="detail.is_home"> · 家</span>
+                <span v-if="detail.source === 'untimed_loc'"> · 无时间按地点</span>
               </p>
               <p v-if="detail.people?.length" class="muted">
                 {{ detail.people.join('、') }}
@@ -542,6 +572,8 @@ const emit = defineEmits(['view-detail'])
 
 const viewMode = ref('outings') // outings | stories
 const includeHome = ref(false)
+/** all | dated | untimed */
+const timeScope = ref('all')
 const yearFilter = ref('')
 const monthFilter = ref('')
 const dayFilter = ref('')
@@ -803,7 +835,7 @@ async function loadMemoryLocations() {
   }
 }
 
-function openLocationDialog() {
+async function openLocationDialog() {
   if (!selectedPhotoIds.value.length) {
     ElMessage.warning('请先选择照片')
     return
@@ -813,6 +845,7 @@ function openLocationDialog() {
   batchCity.value = ''
   batchDistrict.value = ''
   batchFormattedAddress.value = ''
+  await loadMemoryLocations()
   locationDialogVisible.value = true
 }
 
@@ -856,6 +889,7 @@ async function submitBatchLocation() {
     }
     locationDialogVisible.value = false
     clearPhotoSelection()
+    await loadMemoryLocations()
     if (selectedId.value) await selectEvent(selectedId.value)
     await loadMemoryLocations()
     try {
@@ -883,15 +917,35 @@ function dayQuery() {
 }
 
 function listParams(offset = 0) {
-  return {
+  const params = {
     include_home: includeHome.value,
-    day: dayQuery() || undefined,
+    time_scope: timeScope.value || 'all',
     location: locationFilter.value.trim() || undefined,
     person: personFilter.value.trim() || undefined,
     keyword: keywordFilter.value.trim() || undefined,
     limit: pageSize,
     offset,
   }
+  if (timeScope.value !== 'untimed') {
+    const day = dayQuery()
+    if (day) params.day = day
+  }
+  return params
+}
+
+function dayLabel(day) {
+  return day && String(day).trim() ? day : '无时间'
+}
+
+function onTimeScopeChange() {
+  if (timeScope.value === 'untimed') {
+    yearFilter.value = ''
+    monthFilter.value = ''
+    dayFilter.value = ''
+    // 无时间地点里家照片很多，默认含家以免漏掉
+    includeHome.value = true
+  }
+  onFilterChange()
 }
 
 function outingRowClass({ row }) {
@@ -1002,8 +1056,10 @@ async function syncEvents() {
   syncing.value = true
   try {
     const res = await axios.post('/api/events/sync')
+    const untimed = res.data.untimed_location_events || 0
     ElMessage.success(
-      `已重建：outing ${res.data.outing_events} / 家 ${res.data.home_events}`,
+      `已重建：outing ${res.data.outing_events} / 家 ${res.data.home_events}` +
+        (untimed ? ` / 无时间地点 ${untimed}` : ''),
     )
     await loadYears()
     await loadEventLocations()
@@ -1258,6 +1314,10 @@ onMounted(async () => {
   font-size: 0.78rem;
   color: var(--muted);
   margin-left: 0.25rem;
+}
+
+.time-scope-select {
+  width: 120px;
 }
 
 .year-select {

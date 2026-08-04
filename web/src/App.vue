@@ -2,7 +2,7 @@
   <div class="app-container">
     <header class="app-header">
       <h1>MemoryGraph Inspector</h1>
-      <p>检查 memory JSON · 记忆问答 · 事件 · 地址缓存 · 人脸库 · 维护工具</p>
+      <p>检查 memory JSON · 记忆问答 · 事件 · 去重 · 地址缓存 · 人脸库 · 维护工具</p>
     </header>
 
     <main class="app-main">
@@ -17,6 +17,10 @@
 
         <el-tab-pane label="事件" name="events">
           <MemoryEvents @view-detail="openDetail" />
+        </el-tab-pane>
+
+        <el-tab-pane label="去重" name="dedup">
+          <MemoryDedup @view-detail="openDetail" />
         </el-tab-pane>
 
         <el-tab-pane label="详情" name="detail">
@@ -59,6 +63,7 @@ import { ref } from 'vue'
 import MemoryList from './components/MemoryList.vue'
 import MemoryAsk from './components/MemoryAsk.vue'
 import MemoryEvents from './components/MemoryEvents.vue'
+import MemoryDedup from './components/MemoryDedup.vue'
 import MemoryDetail from './components/MemoryDetail.vue'
 import MemoryBatchEdit from './components/MemoryBatchEdit.vue'
 import GeocodeCache from './components/GeocodeCache.vue'
