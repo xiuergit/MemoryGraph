@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from hub.shared.config import SCHEMA_VERSION
+from hub.shared.config import SCHEMA_VERSION, VIDEO_SCHEMA_VERSION
 
 
 class AgeAtPhoto(TypedDict):
@@ -39,6 +39,21 @@ class Source(TypedDict):
     height: int
 
 
+class VideoSource(TypedDict, total=False):
+    path: str
+    width: int
+    height: int
+    duration_s: float
+    fps: float | None
+    container: str
+
+
+class RelatedId(TypedDict):
+    id: str
+    media_type: str
+    relation: str
+
+
 class LocationAdmin(TypedDict):
     province: str
     city: str
@@ -67,6 +82,18 @@ def location_admin_from_dict(raw: dict[str, Any] | None) -> LocationAdmin:
     )
 
 
+class Weather(TypedDict):
+    date: str
+    code: int
+    condition: str
+    temp_max_c: float | None
+    temp_min_c: float | None
+    temp_mean_c: float | None
+    precipitation_mm: float | None
+    source: str
+    timezone: str
+
+
 class PhotoJson(TypedDict, total=False):
     schema_version: str
     photo_id: str
@@ -83,6 +110,7 @@ class PhotoJson(TypedDict, total=False):
     tags: list[str]
     quality: Quality
     source: Source
+    weather: Weather
     manual_edit: bool
     manual_location: bool
     manual_people: bool
@@ -140,6 +168,53 @@ def empty_analysis() -> AnalysisResult:
     )
 
 
+def build_video_json(
+    video_id: str,
+    timestamp: str,
+    source: VideoSource,
+    analysis: AnalysisResult,
+    *,
+    device_id: str = "",
+    location_coords: str = "",
+    location_admin: LocationAdmin | None = None,
+    weather: Weather | None = None,
+    related_ids: list[RelatedId] | None = None,
+) -> dict[str, Any]:
+    """将元数据与分析结果合并为 video.v1 JSON 对象。"""
+    admin = location_admin if location_admin is not None else empty_location_admin()
+    out: dict[str, Any] = {
+        "schema_version": VIDEO_SCHEMA_VERSION,
+        "video_id": video_id,
+        "timestamp": timestamp,
+        "device_id": device_id,
+        "people": analysis["people"],
+        "scene": analysis["scene"],
+        "location": analysis["location"],
+        "location_coords": location_coords,
+        "location_admin": admin,
+        "objects": analysis["objects"],
+        "actions": analysis["actions"],
+        "emotion": analysis["emotion"],
+        "tags": analysis["tags"],
+        "quality": analysis["quality"],
+        "source": {
+            "path": source["path"],
+            "width": int(source["width"]),
+            "height": int(source["height"]),
+            "duration_s": float(source["duration_s"]),
+        },
+    }
+    if source.get("fps") is not None:
+        out["source"]["fps"] = source["fps"]
+    if source.get("container"):
+        out["source"]["container"] = source["container"]
+    if related_ids:
+        out["related_ids"] = related_ids
+    if weather is not None:
+        out["weather"] = weather
+    return out
+
+
 def build_photo_json(
     photo_id: str,
     timestamp: str,
@@ -149,10 +224,11 @@ def build_photo_json(
     device_id: str = "",
     location_coords: str = "",
     location_admin: LocationAdmin | None = None,
+    weather: Weather | None = None,
 ) -> PhotoJson:
     """将元数据与 AI 分析结果合并为完整 JSON 对象。"""
     admin = location_admin if location_admin is not None else empty_location_admin()
-    return PhotoJson(
+    out = PhotoJson(
         schema_version=SCHEMA_VERSION,
         photo_id=photo_id,
         timestamp=timestamp,
@@ -169,6 +245,9 @@ def build_photo_json(
         quality=analysis["quality"],
         source=source,
     )
+    if weather is not None:
+        out["weather"] = weather
+    return out
 
 
 def analysis_from_dict(data: dict[str, Any]) -> AnalysisResult:

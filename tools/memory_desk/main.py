@@ -53,11 +53,53 @@ def _find_free_port(host: str, start: int, *, tries: int = 20) -> int:
     raise RuntimeError(f"在 {start}–{start + tries - 1} 范围内找不到可用端口")
 
 
+def _is_wildcard_host(host: str) -> bool:
+    return host in {"0.0.0.0", "::", "[::]"}
+
+
+def _lan_ipv4() -> str | None:
+    """尽量拿到局域网 IPv4，供手机/iPad 填写；失败则返回 None。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except OSError:
+        pass
+    return None
+
+
+def _browser_url(host: str, port: int) -> str:
+    """浏览器可打开的地址：0.0.0.0 不能当 URL，改用 127.0.0.1。"""
+    open_host = "127.0.0.1" if _is_wildcard_host(host) else host
+    return f"http://{open_host}:{port}/"
+
+
+def _print_endpoints(host: str, port: int) -> str:
+    """打印本机 / 局域网访问方式，返回应自动打开的 URL。"""
+    local_url = _browser_url(host, port)
+    print(f"MemoryGraph Desk 监听 {host}:{port}")
+    print(f"  本机浏览器: {local_url}")
+    if _is_wildcard_host(host):
+        lan = _lan_ipv4()
+        if lan:
+            print(f"  手机/iPad:  http://{lan}:{port}/  （App 设置填 {lan}）")
+        else:
+            print("  手机/iPad:  填 Mac 局域网 IP（系统设置 → 网络）")
+    print("Ctrl+C 停止服务")
+    return local_url
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="MemoryGraph Desk — 本地 Web：搜文件、预览、打开、问答",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认本机）")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="监听地址：仅本机用 127.0.0.1；手机/iPad 访问用 0.0.0.0（本机仍可用 127.0.0.1 打开）",
+    )
     parser.add_argument(
         "--port",
         type=int,
@@ -84,22 +126,19 @@ def main() -> int:
 
     port = args.port
     if _port_in_use(args.host, port):
-        url = f"http://{args.host}:{port}/"
         if args.auto_port:
             port = _find_free_port(args.host, port + 1)
         else:
             print(f"端口 {port} 已被占用（Desk 可能已在运行）。")
-            print(f"  直接打开: {url}")
-            print(f"  换端口启动: python tools/memory_desk/main.py --port {port + 1}")
+            print(f"  直接打开: {_browser_url(args.host, port)}")
+            print(f"  换端口启动: python tools/memory_desk/main.py --host {args.host} --port {port + 1}")
             print(f"  查看占用: lsof -nP -iTCP:{port} -sTCP:LISTEN")
             _write_desk_port(port)
             if not args.no_browser:
-                webbrowser.open(url)
+                webbrowser.open(_browser_url(args.host, port))
             return 0
 
-    url = f"http://{args.host}:{port}/"
-    print(f"MemoryGraph Desk → {url}")
-    print("Ctrl+C 停止服务")
+    url = _print_endpoints(args.host, port)
     _write_desk_port(port)
 
     if not args.no_browser:

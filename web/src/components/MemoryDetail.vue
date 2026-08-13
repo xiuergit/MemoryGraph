@@ -2,7 +2,11 @@
   <div class="detail-container" v-loading="loading">
     <div v-if="detail" class="detail-content">
       <div class="detail-header">
-        <h2>{{ detail.photo_id }}</h2>
+        <h2>
+          {{ detail.photo_id }}
+          <el-tag v-if="isVideo" type="warning" size="small" effect="dark" class="media-tag">视频</el-tag>
+          <el-tag v-else-if="isAudio" type="info" size="small" effect="dark" class="media-tag">音频</el-tag>
+        </h2>
         <div class="header-actions">
           <el-button type="primary" :loading="saving" @click="saveEdit">保存修改</el-button>
           <el-button @click="refresh">刷新</el-button>
@@ -11,7 +15,20 @@
 
       <div class="detail-body">
         <div class="photo-panel" v-if="detail.has_photo_file">
+          <div v-if="isVideo" class="video-preview-panel">
+            <img
+              class="video-poster"
+              :src="previewUrl(detail.source_path)"
+              :alt="detail.photo_id"
+            />
+            <div class="video-meta">
+              <span v-if="videoDurationLabel">时长 {{ videoDurationLabel }}</span>
+              <span v-if="videoSizeLabel">{{ videoSizeLabel }}</span>
+            </div>
+            <el-button type="primary" @click="openSource">用系统播放器打开</el-button>
+          </div>
           <FaceEnrollPanel
+            v-else
             :photo-id="detail.photo_id"
             :source-path="detail.source_path"
             :has-photo-file="detail.has_photo_file"
@@ -187,7 +204,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import JsonTreeNode from './JsonTreeNode.vue'
@@ -203,6 +220,39 @@ const props = defineProps({
 const loading = ref(false)
 const saving = ref(false)
 const detail = ref(null)
+
+const isVideo = computed(() => (detail.value?.media_type || '') === 'video')
+const isAudio = computed(() => (detail.value?.media_type || '') === 'audio')
+const videoDurationLabel = computed(() => {
+  const sec = detail.value?.data?.source?.duration_s
+  if (sec == null || sec === '') return ''
+  const n = Number(sec)
+  if (!Number.isFinite(n)) return ''
+  if (n < 60) return `${n.toFixed(1)}s`
+  const m = Math.floor(n / 60)
+  const s = Math.round(n % 60)
+  return `${m}:${String(s).padStart(2, '0')}`
+})
+const videoSizeLabel = computed(() => {
+  const src = detail.value?.data?.source || {}
+  const w = src.width
+  const h = src.height
+  if (!w || !h) return ''
+  return `${w}×${h}`
+})
+
+function previewUrl(path) {
+  return `/api/preview?path=${encodeURIComponent(path)}&size=960`
+}
+
+async function openSource() {
+  if (!detail.value?.source_path) return
+  try {
+    await axios.post('/api/open', { path: detail.value.source_path })
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '打开失败')
+  }
+}
 const registryPeople = ref([])
 const locations = ref([])
 const locationItems = ref([])
@@ -368,11 +418,42 @@ onMounted(() => {
   margin: 0;
   font-size: 1.5rem;
   font-family: monospace;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.media-tag {
+  font-family: system-ui, sans-serif;
 }
 
 .header-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.video-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.video-poster {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #010409;
+  border: 1px solid var(--border);
+}
+
+.video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .detail-body {

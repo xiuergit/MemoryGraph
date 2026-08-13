@@ -1,0 +1,386 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		10010D1A347C412AB143B376 /* AskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */; };
+		290008F7DC024DE592969A5A /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */; };
+		2E2C50B8EF0D44BD97777421 /* RemoteImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C32CB9216B4363B59F41BF /* RemoteImageView.swift */; };
+		358ACC2662474609B59DE64F /* AnswerSpeaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */; };
+		3A808F3B41E242DFB8E7B792 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C81D9F10D94F088F13C907 /* Models.swift */; };
+		3D0AEE61B56A42B498C39321 /* KidTalkMicButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5398FAB6B043B0BFDE9594 /* KidTalkMicButton.swift */; };
+		45E375D03FC744BDB7861927 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC30E9A2FF0A4455811D234A /* RootTabView.swift */; };
+		4EA103936926473BB741DFC1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CE21D8142B094676BF4FBB88 /* Assets.xcassets */; };
+		60CB2829983B41669538BB46 /* SampleQuestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28917F2193B41BFB5A5E972 /* SampleQuestions.swift */; };
+		6C847B9E77F94C10A8375812 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB83588AE55C448FB617C60A /* PeopleView.swift */; };
+		6EFAC07CE8674DEDB71E4EC5 /* PhotoStripTwoRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 167E5A07DBB54ED88C7F4212 /* PhotoStripTwoRow.swift */; };
+		738D0BC116B04FB289158A80 /* DeskAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */; };
+		87F7F3B053464AB185612BA6 /* MemoryGraphApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660374A4655F4BAA8AE358DC /* MemoryGraphApp.swift */; };
+		91DCDDDC7A4E4922A678BB26 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B960FC971C4D13BB725F5B /* SettingsView.swift */; };
+		9520379D67DA4B84A1ED8D9B /* PhotoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C912FD64EA7940FCB1B93691 /* PhotoDetailView.swift */; };
+		BA7A3A158C614856B7174178 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */; };
+		B1F4E8C29A7D4E11B0C3D5E6 /* KidSpeechVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */; };
+		CA1B13159F03404DBD675698 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C60AF0802E54EB68115EAE2 /* AskView.swift */; };
+		D8CF0551C2BD4214AC7F56C3 /* PeopleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F51115D0C304E768751AFD3 /* PeopleViewModel.swift */; };
+		DBC8F4924E6D41AEADE1E63B /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251B7EF08BFF42B1BC380694 /* ConnectionBanner.swift */; };
+		E482A9E56823415390B6020B /* PersonPhotosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEB4FE25EF94A4DBC7DB217 /* PersonPhotosView.swift */; };
+		E830C813AC79497491ABAF66 /* PhotoGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4955B85D9D2442AD9A503C0D /* PhotoGridView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		167E5A07DBB54ED88C7F4212 /* PhotoStripTwoRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStripTwoRow.swift; sourceTree = "<group>"; };
+		251B7EF08BFF42B1BC380694 /* ConnectionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBanner.swift; sourceTree = "<group>"; };
+		2F51115D0C304E768751AFD3 /* PeopleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleViewModel.swift; sourceTree = "<group>"; };
+		3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidSpeechVocabulary.swift; sourceTree = "<group>"; };
+		3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		4955B85D9D2442AD9A503C0D /* PhotoGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoGridView.swift; sourceTree = "<group>"; };
+		6281F4E32CA74BA482E862AB /* MemoryGraph.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MemoryGraph.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		660374A4655F4BAA8AE358DC /* MemoryGraphApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGraphApp.swift; sourceTree = "<group>"; };
+		6E5398FAB6B043B0BFDE9594 /* KidTalkMicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidTalkMicButton.swift; sourceTree = "<group>"; };
+		7C60AF0802E54EB68115EAE2 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
+		7CC29D7BC55A4FB3AEC306A8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskAPIClient.swift; sourceTree = "<group>"; };
+		A8C32CB9216B4363B59F41BF /* RemoteImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImageView.swift; sourceTree = "<group>"; };
+		ACEB4FE25EF94A4DBC7DB217 /* PersonPhotosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonPhotosView.swift; sourceTree = "<group>"; };
+		C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskViewModel.swift; sourceTree = "<group>"; };
+		C912FD64EA7940FCB1B93691 /* PhotoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDetailView.swift; sourceTree = "<group>"; };
+		CE21D8142B094676BF4FBB88 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DB83588AE55C448FB617C60A /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
+		DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerSpeaker.swift; sourceTree = "<group>"; };
+		E0C81D9F10D94F088F13C907 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		E28917F2193B41BFB5A5E972 /* SampleQuestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleQuestions.swift; sourceTree = "<group>"; };
+		E4B960FC971C4D13BB725F5B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FC30E9A2FF0A4455811D234A /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BFDE143EF83C444EACC485B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		6C8C9D81542D4778AB72753D /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				251B7EF08BFF42B1BC380694 /* ConnectionBanner.swift */,
+				C912FD64EA7940FCB1B93691 /* PhotoDetailView.swift */,
+				4955B85D9D2442AD9A503C0D /* PhotoGridView.swift */,
+				167E5A07DBB54ED88C7F4212 /* PhotoStripTwoRow.swift */,
+				A8C32CB9216B4363B59F41BF /* RemoteImageView.swift */,
+				E4B960FC971C4D13BB725F5B /* SettingsView.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		6E931BE8B0444A329B3F6925 /* Ask */ = {
+			isa = PBXGroup;
+			children = (
+				7C60AF0802E54EB68115EAE2 /* AskView.swift */,
+				C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */,
+				6E5398FAB6B043B0BFDE9594 /* KidTalkMicButton.swift */,
+			);
+			path = Ask;
+			sourceTree = "<group>";
+		};
+		943BF0CE5A234DA3963E3088 /* People */ = {
+			isa = PBXGroup;
+			children = (
+				DB83588AE55C448FB617C60A /* PeopleView.swift */,
+				2F51115D0C304E768751AFD3 /* PeopleViewModel.swift */,
+				ACEB4FE25EF94A4DBC7DB217 /* PersonPhotosView.swift */,
+			);
+			path = People;
+			sourceTree = "<group>";
+		};
+		9537077459664BAABE6A172A /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				E0C81D9F10D94F088F13C907 /* Models.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		B9F1734F28F7452FA2D69555 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6281F4E32CA74BA482E862AB /* MemoryGraph.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		C5D68E25689F4C709EF230A2 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */,
+				3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */,
+				9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */,
+				A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */,
+				E28917F2193B41BFB5A5E972 /* SampleQuestions.swift */,
+				3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		C8377B4B59344CA3BD590F37 /* MemoryGraph */ = {
+			isa = PBXGroup;
+			children = (
+				9537077459664BAABE6A172A /* Models */,
+				C5D68E25689F4C709EF230A2 /* Services */,
+				DDDE5CC1C1A0491E9864DD63 /* Views */,
+				CE21D8142B094676BF4FBB88 /* Assets.xcassets */,
+				7CC29D7BC55A4FB3AEC306A8 /* Info.plist */,
+				660374A4655F4BAA8AE358DC /* MemoryGraphApp.swift */,
+				FC30E9A2FF0A4455811D234A /* RootTabView.swift */,
+			);
+			path = MemoryGraph;
+			sourceTree = "<group>";
+		};
+		DDDE5CC1C1A0491E9864DD63 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				6E931BE8B0444A329B3F6925 /* Ask */,
+				943BF0CE5A234DA3963E3088 /* People */,
+				6C8C9D81542D4778AB72753D /* Shared */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E11B0EF3E5B146C1960BEE65 = {
+			isa = PBXGroup;
+			children = (
+				C8377B4B59344CA3BD590F37 /* MemoryGraph */,
+				B9F1734F28F7452FA2D69555 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8386EAC1828F45ECB92AA319 /* MemoryGraph */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C99F786D336149FA8EAFB018 /* Build configuration list for PBXNativeTarget "MemoryGraph" */;
+			buildPhases = (
+				7160F81A64DC49B7B42F3D4B /* Sources */,
+				BFDE143EF83C444EACC485B5 /* Frameworks */,
+				9171758E311C485F9A061408 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MemoryGraph;
+			productName = MemoryGraph;
+			productReference = 6281F4E32CA74BA482E862AB /* MemoryGraph.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		99ABE30CDEB544CC9BBDACB3 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1620;
+				LastUpgradeCheck = 1620;
+				TargetAttributes = {
+					8386EAC1828F45ECB92AA319 = {
+						CreatedOnToolsVersion = 16.2;
+					};
+				};
+			};
+			buildConfigurationList = D2984DCDAA724BFBA4C49FB8 /* Build configuration list for PBXProject "MemoryGraph" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = E11B0EF3E5B146C1960BEE65;
+			productRefGroup = B9F1734F28F7452FA2D69555 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8386EAC1828F45ECB92AA319 /* MemoryGraph */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		9171758E311C485F9A061408 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4EA103936926473BB741DFC1 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7160F81A64DC49B7B42F3D4B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				358ACC2662474609B59DE64F /* AnswerSpeaker.swift in Sources */,
+				290008F7DC024DE592969A5A /* AppSettings.swift in Sources */,
+				CA1B13159F03404DBD675698 /* AskView.swift in Sources */,
+				10010D1A347C412AB143B376 /* AskViewModel.swift in Sources */,
+				DBC8F4924E6D41AEADE1E63B /* ConnectionBanner.swift in Sources */,
+				738D0BC116B04FB289158A80 /* DeskAPIClient.swift in Sources */,
+				3D0AEE61B56A42B498C39321 /* KidTalkMicButton.swift in Sources */,
+				87F7F3B053464AB185612BA6 /* MemoryGraphApp.swift in Sources */,
+				3A808F3B41E242DFB8E7B792 /* Models.swift in Sources */,
+				6C847B9E77F94C10A8375812 /* PeopleView.swift in Sources */,
+				D8CF0551C2BD4214AC7F56C3 /* PeopleViewModel.swift in Sources */,
+				E482A9E56823415390B6020B /* PersonPhotosView.swift in Sources */,
+				9520379D67DA4B84A1ED8D9B /* PhotoDetailView.swift in Sources */,
+				E830C813AC79497491ABAF66 /* PhotoGridView.swift in Sources */,
+				6EFAC07CE8674DEDB71E4EC5 /* PhotoStripTwoRow.swift in Sources */,
+				2E2C50B8EF0D44BD97777421 /* RemoteImageView.swift in Sources */,
+				45E375D03FC744BDB7861927 /* RootTabView.swift in Sources */,
+				60CB2829983B41669538BB46 /* SampleQuestions.swift in Sources */,
+				91DCDDDC7A4E4922A678BB26 /* SettingsView.swift in Sources */,
+				B1F4E8C29A7D4E11B0C3D5E6 /* KidSpeechVocabulary.swift in Sources */,
+				BA7A3A158C614856B7174178 /* SpeechRecognizer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		010E70FF7B264DAE883FCBDB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		553F4368E051472B8D7E4C7C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		6327855FC8184078ABC05A25 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 892L9MWRRG;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MemoryGraph/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "点圆钮说话时需要用麦克风。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题，问问家里的记忆。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = family.memorygraph.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9606006B61424A1996D9A384 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 892L9MWRRG;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = MemoryGraph/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "点圆钮说话时需要用麦克风。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题，问问家里的记忆。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = family.memorygraph.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C99F786D336149FA8EAFB018 /* Build configuration list for PBXNativeTarget "MemoryGraph" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6327855FC8184078ABC05A25 /* Debug */,
+				9606006B61424A1996D9A384 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D2984DCDAA724BFBA4C49FB8 /* Build configuration list for PBXProject "MemoryGraph" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				553F4368E051472B8D7E4C7C /* Debug */,
+				010E70FF7B264DAE883FCBDB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 99ABE30CDEB544CC9BBDACB3 /* Project object */;
+}

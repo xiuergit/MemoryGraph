@@ -65,8 +65,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--backfill",
-        choices=["vision", "faces", "all"],
-        help="在已有 JSON 上增量补全：vision=Ollama 场景/tags，faces=人脸，all=全部 AI",
+        choices=["vision", "faces", "all", "weather"],
+        help="在已有 JSON 上增量补全：vision/faces/all=AI；weather=日天气（Open-Meteo，不需原图）",
     )
     parser.add_argument(
         "--has-people",
@@ -199,6 +199,19 @@ def main() -> int:
     if args.backfill:
         if args.resume and args.refill:
             parser.error("--resume 与 --refill 不能同时使用")
+        if args.backfill == "weather":
+            from hub.shared.weather import backfill_weather_folder
+
+            if args.has_people or args.needs_faces:
+                parser.error("--backfill weather 不支持 --has-people / --needs-faces")
+            stats = backfill_weather_folder(
+                MEMORY_DIR,
+                only_empty=not args.refill,
+                limit=args.limit,
+                year=args.year.strip(),
+            )
+            return 1 if stats.failed > 0 else 0
+
         stats = backfill_folder(
             photos_dir=args.input,
             mode=args.backfill,

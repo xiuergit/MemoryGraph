@@ -1,7 +1,9 @@
 # MemoryGraph 回家操作手册
 
 > 适用场景：隔一段时间把 iPhone 照片导出到 Mac，批量分析 → 建索引 → 问答。  
-> iOS App **不是必须**；家用 Mac + Ollama 即可完成主流程。
+> **不需要** iOS 上传 App；家用 Mac + Ollama 即可完成主流程。  
+> iOS 消费端（问问 / 谁）可选，连本机 Desk；见 `apps/ios/README.md`。  
+> **当前阶段（阶段 2）**：结构化问答打磨，见 [agent-intents.md](agent-intents.md)。
 
 ---
 
@@ -128,6 +130,29 @@ API 文档（逆地理编码）：https://lbs.amap.com/api/webservice/guide/api/
 
 ## 三、日常操作（每次导照片）
 
+### 一键脚本（推荐）
+
+原图放进 `data/photos/` 后，**默认不跑 Ollama**；vision 另开、每次一批：
+
+```bash
+# ① 新图快出 JSON（人脸 + 地点；跳过已有）
+#    --input 只缩小扫描范围，photo_id 仍相对 data/photos/（不会因为子目录变 id）
+./import_photos.sh --input data/photos/2026
+
+# ② 补 scene/tags：默认每次 1000 张（有人物优先）；反复执行直到补完
+./import_photos.sh --vision
+./import_photos.sh --vision --limit 500          # 或改每批张数
+./import_photos.sh --vision --year 2026          # 或只补某年
+
+# 若要坚持入库时就跑 Ollama（慢）：
+./import_photos.sh --full --input data/photos/2026
+
+./import_photos.sh --stats                       # 可选：健康报告
+./import_photos.sh --index-only                  # 只 sync 索引+事件（JSON 已改时）
+```
+
+`--vision` = `photo2json --backfill vision --has-people --limit 1000` + 索引/事件 sync。详细参数见 `./import_photos.sh --help`。
+
 ### 步骤 1：放入原图
 
 把从 iPhone 导出的照片放进 `data/photos/`，可按年分子目录，例如：
@@ -137,7 +162,19 @@ data/photos/2025/IMG_3832.HEIC
 data/photos/2026/IMG_3855.HEIC
 ```
 
-支持格式：`.jpg` `.jpeg` `.png` `.heic` `.heif`（**不含** `.mov` 等视频；视频在 `photos/` 里但不进 JSON/索引）
+支持格式（当前 `photo2json`）：`.jpg` `.jpeg` `.png` `.heic` `.heif`  
+
+视频（`.mov` / `.mp4` 等）可与照片同放在 `data/photos/`。协议见 `schemas/video.v1.json`；入库：
+
+```bash
+# 指定文件（示例）
+python tools/video2json/main.py data/photos/2026/5-8/IMG_4602.MOV
+
+# 扫目录；--limit=本次成功写入条数（跳过已有并续补）；--no-ai 只写元数据；--force 覆盖
+python tools/video2json/main.py --input data/photos/2026/5-8 --limit 5
+```
+
+写出 `data/memory/{video_id}.json`（id 为路径 stem + `_v`）。跑完后执行 `python tools/memory_index/main.py sync`，Vue 列表才能看到新视频。约定见 [media-memory.md](media-memory.md)。
 
 ### 步骤 2：批量生成 JSON
 
@@ -234,6 +271,25 @@ python tools/photo2json/main.py --backfill faces --needs-faces
 # 补全部 AI 字段（等同对选中 JSON 重跑 analyze_image）
 python tools/photo2json/main.py --backfill all --has-people
 ```
+
+### 补全天气（Open-Meteo，日粒度）
+
+需 JSON 里已有 `timestamp` + `location_coords`；**不读原图**。同日近距离坐标共享 `data/.weather_cache.json`。
+
+```bash
+# 试跑 20 张
+python tools/photo2json/main.py --backfill weather --limit 20
+
+# 按年补全（已有 weather 会跳过）
+python tools/photo2json/main.py --backfill weather --year 2024
+
+# 强制重拉
+python tools/photo2json/main.py --backfill weather --refill --year 2024 --limit 100
+
+python tools/memory_index/main.py sync
+```
+
+最近约 5 天的日期可能因再分析延迟查不到（计失败）；无 GPS / 无时间的照片会跳过。
 
 **人脸 `--refill` 注意：** 全库约 2 万张，InsightFace 占内存大，可能被系统 `killed`（OOM）。建议按年或限量分批：
 
@@ -440,6 +496,10 @@ JSON 和原图不受影响。
 ## 七、命令速查
 
 ```bash
+# 新导入照片一键（默认关 Ollama → 再用 --vision 分批）
+./import_photos.sh --input data/photos/2026
+./import_photos.sh --vision                  # 默认每次 1000 张，可反复跑
+
 # 环境
 source .venv/bin/activate
 export $(grep -v '^#' .env | xargs)
@@ -509,7 +569,7 @@ Vite 会读 `data/.memory_desk_port` 或环境变量 `MEMORY_DESK_PORT` / `VITE_
 | 标签 | 作用 |
 |------|------|
 | 列表 | 浏览 memory JSON，进详情；**批量标人物**（写 JSON `people` 并 sync 索引） |
-| 问答 | 左右布局：左提问/短答，右证据（缩略图/排行/到访日/出门事件）+ facts；点图进详情 |
+| 问答 | 左右布局：左提问/短答，右证据（缩略图/排行/到访日/出门事件）+ facts；点图进详情（**阶段 2** 打磨后端意图，见 [agent-intents.md](agent-intents.md)） |
 | 事件 | 顶栏筛选 + 宽表 + 右侧详情（备注/照片）；故事为子视图 |
 | 去重 | 字节重复 / 连拍 / 无时间近相似；无时间按近哈希相邻便于补时间；确认后删进 `.trash` |
 | 详情 | 单条 JSON 树形查看；检测人脸 → 加入人脸库 |

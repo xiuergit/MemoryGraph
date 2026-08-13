@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memorygraph.local/schemas/video.v1.json",
+  "title": "MemoryGraph Video Memory",
+  "description": "单段视频的结构化记忆单元。核心语义字段与 photo.v1 同构；不与照片共用 id。Live Photo 不单开协议，用 related_ids 与对应 photo 互链。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "video_id",
+    "timestamp",
+    "device_id",
+    "people",
+    "scene",
+    "location",
+    "objects",
+    "actions",
+    "emotion",
+    "tags",
+    "quality",
+    "source"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"],
+      "description": "video.v1 协议版本；与 photo 的 schema_version 编号彼此独立"
+    },
+    "video_id": {
+      "type": "string",
+      "description": "全库唯一（与 photo_id / audio_id 不冲突）。建议：相对 photos/ 路径 stem + 后缀 _v，避免 Live Photo 同名 stem 撞车"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "拍摄/创建时间 ISO 8601；无元数据则为空字符串"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "来源设备标识，如 iphone / mac；未知可为空字符串"
+    },
+    "people": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "confidence": { "type": "number" },
+          "role": { "type": "string" },
+          "match_method": {
+            "type": "string",
+            "enum": ["face", "outfit"],
+            "description": "face=人脸识别，outfit=衣着兜底（通常来自关键帧）"
+          },
+          "age_at_photo": {
+            "type": "object",
+            "description": "字段名与 photo.v1 同构（按 timestamp 相对出生日期）",
+            "required": ["years", "months", "days", "total_days", "label"],
+            "properties": {
+              "years": { "type": "integer", "minimum": 0 },
+              "months": { "type": "integer", "minimum": 0 },
+              "days": { "type": "integer", "minimum": 0 },
+              "total_days": { "type": "integer", "minimum": 0 },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "scene": { "type": "string" },
+    "location": {
+      "type": "string",
+      "description": "可读地名；由逆地理 + 同日归一得出"
+    },
+    "location_coords": {
+      "type": "string",
+      "description": "GPS 原始坐标 '纬度,经度'；无则为空字符串"
+    },
+    "location_admin": {
+      "type": "object",
+      "description": "逆地理行政区划与完整地址；无 GPS 时各字段为空字符串",
+      "properties": {
+        "province": { "type": "string" },
+        "city": { "type": "string" },
+        "district": { "type": "string" },
+        "formatted_address": { "type": "string" }
+      },
+      "required": ["province", "city", "district", "formatted_address"],
+      "additionalProperties": false
+    },
+    "objects": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "emotion": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "quality": {
+      "type": "object",
+      "description": "相对关键帧或聚合结果；未分析时可均为 false",
+      "required": ["blur", "face_detected"],
+      "properties": {
+        "blur": { "type": "boolean" },
+        "face_detected": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["path", "width", "height", "duration_s"],
+      "properties": {
+        "path": { "type": "string" },
+        "width": { "type": "integer", "minimum": 0 },
+        "height": { "type": "integer", "minimum": 0 },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "时长（秒）"
+        },
+        "fps": {
+          "type": ["number", "null"],
+          "description": "帧率；未知可省略或 null"
+        },
+        "container": {
+          "type": "string",
+          "description": "容器/扩展名提示，如 mov、mp4；可为空字符串"
+        }
+      },
+      "additionalProperties": false
+    },
+    "related_ids": {
+      "type": "array",
+      "description": "与其它记忆条目的关联。Live Photo：与同对 photo 互链，relation=live_photo",
+      "items": {
+        "type": "object",
+        "required": ["id", "media_type", "relation"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "对方记忆 id（photo_id / video_id / audio_id）"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": ["photo", "video", "audio"]
+          },
+          "relation": {
+            "type": "string",
+            "description": "关系类型，如 live_photo、same_moment、derived"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "manual_edit": {
+      "type": "boolean",
+      "description": "兼容字段：任一 manual_* 为 true 时可同步为 true；跳过逻辑以分项为准"
+    },
+    "manual_location": {
+      "type": "boolean",
+      "description": "手改地址；regeocode / 地址归一跳过"
+    },
+    "manual_people": {
+      "type": "boolean",
+      "description": "手改人物；faces backfill 跳过"
+    },
+    "manual_vision": {
+      "type": "boolean",
+      "description": "手改场景/物体等；vision / 关键帧分析 backfill 跳过"
+    },
+    "weather": {
+      "type": "object",
+      "description": "拍摄日当地天气；无时间或 GPS 时可省略（结构同 photo.v1）",
+      "properties": {
+        "date": { "type": "string" },
+        "code": { "type": "integer" },
+        "condition": { "type": "string" },
+        "temp_max_c": { "type": ["number", "null"] },
+        "temp_min_c": { "type": ["number", "null"] },
+        "temp_mean_c": { "type": ["number", "null"] },
+        "precipitation_mm": { "type": ["number", "null"] },
+        "source": { "type": "string" },
+        "timezone": { "type": "string" }
+      },
+      "required": [
+        "date",
+        "code",
+        "condition",
+        "temp_max_c",
+        "temp_min_c",
+        "temp_mean_c",
+        "precipitation_mm",
+        "source",
+        "timezone"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

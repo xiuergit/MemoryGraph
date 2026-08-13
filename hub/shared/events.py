@@ -807,7 +807,9 @@ def list_events(
         """,
         (*params, limit, offset),
     ).fetchall()
-    return [_event_row_to_dict(r) for r in rows]
+    items = [_event_row_to_dict(r) for r in rows]
+    _attach_events_weather(conn, items)
+    return items
 
 
 def count_events(
@@ -924,7 +926,108 @@ def _event_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         "built_at": row["built_at"],
         "display_title": display_title,
         "overlay": overlay,
+        "weather": None,
+        "weather_label": "",
     }
+
+
+def _weather_payload_from_weather(weather: dict[str, Any]) -> dict[str, Any]:
+    from hub.shared.weather import format_weather_label
+
+    condition = str(weather.get("condition") or "").strip()
+    temp_min = weather.get("temp_min_c")
+    temp_max = weather.get("temp_max_c")
+    temp_mean = weather.get("temp_mean_c")
+    label = format_weather_label(
+        condition,
+        temp_min_c=float(temp_min) if temp_min is not None else None,
+        temp_max_c=float(temp_max) if temp_max is not None else None,
+        temp_mean_c=float(temp_mean) if temp_mean is not None else None,
+    )
+    return {
+        "condition": condition,
+        "temp_min_c": temp_min,
+        "temp_max_c": temp_max,
+        "temp_mean_c": temp_mean,
+        "label": label,
+    }
+
+
+def _event_day_coords(
+    conn: sqlite3.Connection, event_ids: list[str]
+) -> dict[str, str]:
+    """event_id → 代表坐标（事件自身或任一张有 GPS 的成员照片）。"""
+    if not event_ids:
+        return {}
+    placeholders = ",".join("?" for _ in event_ids)
+    out: dict[str, str] = {}
+    rows = conn.execute(
+        f"""
+        SELECT e.event_id, e.location_coords
+        FROM events e
+        WHERE e.event_id IN ({placeholders})
+        """,
+        event_ids,
+    ).fetchall()
+    for row in rows:
+        coords = str(row["location_coords"] or "").strip()
+        if coords:
+            out[row["event_id"]] = coords
+    missing = [eid for eid in event_ids if eid not in out]
+    if missing:
+        ph = ",".join("?" for _ in missing)
+        photo_rows = conn.execute(
+            f"""
+            SELECT ep.event_id, p.location_coords
+            FROM event_photos ep
+            JOIN photos p ON p.photo_id = ep.photo_id
+            WHERE ep.event_id IN ({ph})
+              AND IFNULL(p.location_coords, '') != ''
+            ORDER BY ep.event_id, ep.sort_ts
+            """,
+            missing,
+        ).fetchall()
+        for row in photo_rows:
+            eid = row["event_id"]
+            if eid not in out:
+                out[eid] = str(row["location_coords"]).strip()
+    return out
+
+
+def _attach_events_weather(conn: sqlite3.Connection, events: list[dict[str, Any]]) -> None:
+    """事件天气：按「日历日」用白天众数（非拍摄小时），同日列表一致。"""
+    if not events:
+        return
+    from hub.shared.weather import resolve_daytime_weather
+
+    ids = [e["event_id"] for e in events if e.get("event_id")]
+    if not ids:
+        return
+
+    coords_by_event = _event_day_coords(conn, ids)
+    # 同一天共用一条白天天气（取当天任一可用坐标）
+    day_coords: dict[str, str] = {}
+    for event in events:
+        day = str(event.get("day") or "").strip()
+        if not day or day in day_coords:
+            continue
+        coords = coords_by_event.get(event["event_id"], "")
+        if coords:
+            day_coords[day] = coords
+
+    day_weather: dict[str, dict[str, Any]] = {}
+    for day, coords in day_coords.items():
+        weather = resolve_daytime_weather(coords, day, persist_cache=True)
+        if weather:
+            day_weather[day] = _weather_payload_from_weather(dict(weather))
+
+    for event in events:
+        day = str(event.get("day") or "").strip()
+        payload = day_weather.get(day)
+        if not payload:
+            continue
+        event["weather"] = payload
+        event["weather_label"] = payload["label"]
 
 
 def get_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:
@@ -953,7 +1056,11 @@ def get_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:
             p.timestamp,
             p.location,
             p.scene,
-            p.source_path
+            p.source_path,
+            p.weather_condition,
+            p.weather_temp_min_c,
+            p.weather_temp_max_c,
+            p.weather_temp_mean_c
         FROM event_photos ep
         JOIN photos p ON p.photo_id = ep.photo_id
         WHERE ep.event_id = ?
@@ -962,6 +1069,7 @@ def get_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:
         (event_id,),
     ).fetchall()
     data["photos"] = [dict(p) for p in photos]
+    _attach_events_weather(conn, [data])
     return data
 
 

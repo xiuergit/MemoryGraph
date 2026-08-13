@@ -1,3 +1,206 @@
 {
-  "places": []
+  "_comment": "家：高德常把附近 GPS 标成「河滨香景园」，统一成「馨越公寓（家）」。勿再跑会合并家附近 POI 的 --normalize-locations。",
+  "places": [
+    {
+      "canonical": "馨越公寓（家）",
+      "aliases": [
+        "河滨香景园",
+        "香景园",
+        "馨越公寓"
+      ],
+      "location_admin": {
+        "province": "上海市",
+        "city": "上海市",
+        "district": "普陀区",
+        "formatted_address": "上海市普陀区千阳南路99弄"
+      }
+    },
+    {
+      "canonical": "古猗园",
+      "aliases": [
+        "陈君起纪念馆"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "西郊宾馆",
+      "aliases": [
+        "上海市长宁区南新幼儿园",
+        "御墅花园"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "半马苏河公园",
+      "aliases": [
+        "上海市贸易学校(西北1门)",
+        "临空滑板公园"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "汤连得（金沙江）",
+      "aliases": [
+        "上海浦河设计研究院",
+        "同普大厦"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "上河湾幼儿园",
+      "aliases": [
+        "上海市贸易学校"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "中环百联",
+      "aliases": [
+        "曹杨实验小学",
+        "祥和家园"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "极乐汤",
+      "aliases": [
+        "建德花园玫瑰苑"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "游泳学校",
+      "aliases": [
+        "宁泉新苑(石泉路)"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "信泰中心",
+      "aliases": [
+        "梅川公园"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "荟品仓",
+      "aliases": [
+        "新泾一村"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "小茉莉",
+      "aliases": [
+        "上海市长宁区住宅建设管理中心",
+        "剑河家苑"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "西郊百联",
+      "aliases": [
+        "虹康花苑二期"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "少儿图书馆",
+      "aliases": [
+        "北岸长风"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "半马苏河公园（绿道）",
+      "aliases": [
+        "上海万佛讲寺",
+        "华漕再生资源化利用中心",
+        "联合利华上海研发中心"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    },
+    {
+      "canonical": "抱补家",
+      "aliases": [
+        "生命元山"
+      ],
+      "location_admin": {
+        "province": "",
+        "city": "",
+        "district": "",
+        "formatted_address": ""
+      }
+    }
+  ]
 }

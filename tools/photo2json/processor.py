@@ -44,34 +44,76 @@ def _write_json(output_path: Path, data: dict) -> None:
         f.write("\n")
 
 
+def _photo_id_candidates(image_path: Path, photos_root: Path) -> list[str]:
+    """photo_id 候选：规范 id（相对 data/photos）+ 历史误用子目录作 root 时的短 id。
+
+    例如 photos/2026/1-3/IMG_1.jpeg：
+      规范：2026_1-3_IMG_1
+      旧短：1-3_IMG_1（曾用 --input data/photos/2026）
+    写入始终用规范 id；跳过时任一候选 JSON 存在即可。
+    """
+    canonical = get_photo_id(image_path, root=photos_root)
+    ids = [canonical]
+    try:
+        rel = image_path.resolve().relative_to(photos_root.resolve())
+    except ValueError:
+        return ids
+    # 逐年 / 更深子目录曾被当作 input root → 去掉前若干段后的短 id
+    for i in range(1, len(rel.parts)):
+        sub_root = photos_root.joinpath(*rel.parts[:i])
+        legacy = get_photo_id(image_path, root=sub_root)
+        if legacy not in ids:
+            ids.append(legacy)
+    return ids
+
+
+def _existing_memory_json(
+    memory_dir: Path, image_path: Path, photos_root: Path
+) -> tuple[str, Path] | None:
+    """若已有对应 JSON，返回 (photo_id, path)；优先规范 id。"""
+    for pid in _photo_id_candidates(image_path, photos_root):
+        path = memory_dir / f"{pid}.json"
+        if path.exists():
+            return pid, path
+    return None
+
+
 def _process_single_image(
     image_path: Path,
     memory_dir: Path,
     *,
-    input_root: Path,
+    photos_root: Path,
     skip_existing: bool,
     device_id: str,
 ) -> str:
     """处理单张图片。返回 'success' | 'skipped'。"""
-    photo_id = get_photo_id(image_path, root=input_root)
+    # photo_id 始终相对 data/photos/，与 --input 子目录无关（避免重复入库）
+    photo_id = get_photo_id(image_path, root=photos_root)
     output_path = memory_dir / f"{photo_id}.json"
+    existing = _existing_memory_json(memory_dir, image_path, photos_root)
 
-    if output_path.exists():
+    if existing is not None:
+        existing_id, existing_path = existing
         try:
-            existing = json.loads(output_path.read_text(encoding="utf-8"))
+            data = json.loads(existing_path.read_text(encoding="utf-8"))
             if (
-                existing.get("manual_edit")
-                or existing.get("manual_people")
-                or existing.get("manual_vision")
-                or existing.get("manual_location")
+                data.get("manual_edit")
+                or data.get("manual_people")
+                or data.get("manual_vision")
+                or data.get("manual_location")
             ):
-                logger.info("跳过（手动编辑）: %s", photo_id)
+                logger.info("跳过（手动编辑）: %s", existing_id)
                 return "skipped"
         except (json.JSONDecodeError, OSError):
             pass
-
-    if skip_existing and output_path.exists():
-        return "skipped"
+        if skip_existing:
+            if existing_id != photo_id:
+                logger.info(
+                    "跳过（已有旧 photo_id JSON）: %s → 规范应为 %s",
+                    existing_id,
+                    photo_id,
+                )
+            return "skipped"
 
     timestamp = extract_exif_timestamp(image_path)
     source = build_source_info(image_path)
@@ -105,8 +147,16 @@ def _process_single_image(
         location_coords=location_coords,
         location_admin=location_admin,
     )
+    payload = dict(photo_json)
+    if location_coords and timestamp:
+        try:
+            from hub.shared.weather import apply_weather_to_memory_dict
 
-    _write_json(output_path, dict(photo_json))
+            apply_weather_to_memory_dict(payload, only_empty=True)
+        except Exception as exc:
+            logger.debug("写入天气跳过 %s: %s", photo_id, exc)
+
+    _write_json(output_path, payload)
     return "success"
 
 
@@ -129,13 +179,16 @@ def process_folder(
     """
     input_path = Path(input_dir or PHOTOS_DIR)
     memory_path = Path(memory_dir or MEMORY_DIR)
+    # --input 只缩小扫描范围；photo_id 一律相对 PHOTOS_DIR
+    photos_root = PHOTOS_DIR.resolve()
     stats = ProcessStats()
     start = time.perf_counter()
 
     logger.info(
-        "开始处理: 输入=%s, 输出=%s",
+        "开始处理: 输入=%s, 输出=%s, photo_id根=%s",
         input_path.resolve(),
         memory_path.resolve(),
+        photos_root,
     )
 
     try:
@@ -161,7 +214,7 @@ def process_folder(
             result = _process_single_image(
                 image_file,
                 memory_path,
-                input_root=input_path,
+                photos_root=photos_root,
                 skip_existing=skip_existing,
                 device_id=device_id,
             )

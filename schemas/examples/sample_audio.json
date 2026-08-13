@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "audio_id": "2025_voice_memo_001_a",
+  "timestamp": "2025-06-01T09:00:00",
+  "device_id": "iphone",
+  "people": [],
+  "scene": "",
+  "location": "",
+  "location_coords": "",
+  "objects": [],
+  "actions": [],
+  "emotion": [],
+  "tags": [],
+  "quality": {
+    "silent": false,
+    "speech_detected": false
+  },
+  "source": {
+    "path": "/Users/you/MemoryGraph/data/photos/2025/voice_memo_001.m4a",
+    "duration_s": 42.5,
+    "sample_rate_hz": 44100,
+    "channels": 1,
+    "container": "m4a"
+  }
+}

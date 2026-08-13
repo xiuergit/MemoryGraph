@@ -53,6 +53,9 @@ def get_photo_id(image_path: Path, *, root: Path | None = None) -> str:
     """生成 photo_id。
 
     顶层文件用文件名（不含扩展名），子目录内用相对路径拼接，如 2025/IMG_3831 → 2025_IMG_3831。
+
+    root 应为 data/photos/（规范根）。勿用年份子目录作 root，否则同图会得到
+    1-3_IMG_1 与 2026_1-3_IMG_1 两套 id。
     """
     if root is not None:
         rel = image_path.resolve().relative_to(root.resolve())

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>王灼若 6 岁生日邀请函</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=ZCOOL+XiaoWei&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #3a2f4a;
+      --soft: #6b5f7a;
+      --lilac: #9b7bb8;
+      --lilac-deep: #7a5a96;
+      --blush: #f3d4e0;
+      --cream: #faf7fc;
+      --line: rgba(58, 47, 74, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans SC", "PingFang SC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 70% 50% at 15% 0%, rgba(243, 212, 224, 0.5), transparent 50%),
+        radial-gradient(ellipse 50% 40% at 90% 100%, rgba(184, 217, 200, 0.35), transparent 45%),
+        #e4dceb;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      background: rgba(250, 247, 252, 0.96);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toolbar p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--soft);
+      max-width: 52ch;
+      line-height: 1.45;
+    }
+
+    .toolbar button {
+      appearance: none;
+      border: none;
+      border-radius: 999px;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, var(--lilac), var(--lilac-deep));
+      color: #fff;
+      font: 500 13px/1 "Noto Sans SC", sans-serif;
+      cursor: pointer;
+    }
+
+    .edit-tip {
+      max-width: 210mm;
+      margin: 14px auto;
+      padding: 0 10mm;
+      font-size: 13px;
+      color: #5c4a6a;
+      line-height: 1.55;
+    }
+
+    #pages {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding-bottom: 40px;
+    }
+
+    .sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 9mm;
+      background: #fff;
+      box-shadow: 0 14px 40px rgba(58, 47, 74, 0.14);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 7mm;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 4.5mm;
+      border: 1.5px solid rgba(155, 123, 184, 0.35);
+      background:
+        radial-gradient(ellipse 90% 55% at 50% -5%, rgba(243, 212, 224, 0.85), transparent 55%),
+        radial-gradient(ellipse 55% 45% at 0% 100%, rgba(184, 217, 200, 0.45), transparent 50%),
+        linear-gradient(168deg, var(--cream) 0%, #fff 50%, #f0eaf5 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 5.5mm 5.5mm 4.5mm;
+      text-align: left;
+    }
+
+    .card.empty { visibility: hidden; }
+
+    .top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 3.5mm;
+      position: relative;
+      z-index: 1;
+    }
+
+    .headline { flex: 1; min-width: 0; }
+
+    .kicker {
+      margin: 0;
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      color: var(--lilac-deep);
+      font-weight: 700;
+    }
+
+    .title {
+      margin: 1.8mm 0 0;
+      font-family: "Ma Shan Zheng", "Kaiti SC", cursive;
+      font-size: 24px;
+      line-height: 1.12;
+      letter-spacing: 0.06em;
+      color: var(--ink);
+    }
+
+    .name {
+      margin: 1.5mm 0 0;
+      font-family: "Ma Shan Zheng", "Kaiti SC", cursive;
+      font-size: 16px;
+      color: var(--lilac-deep);
+      letter-spacing: 0.14em;
+    }
+
+    .portrait {
+      position: relative;
+      flex-shrink: 0;
+      width: 24mm;
+      height: 24mm;
+      margin-top: 0.5mm;
+    }
+
+    .portrait img {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      object-fit: cover;
+      object-position: center 18%;
+      border: 2.2px solid #fff;
+      box-shadow: 0 0 0 1.2px rgba(155, 123, 184, 0.42);
+      display: block;
+      background: var(--blush);
+    }
+
+    .age {
+      position: absolute;
+      right: -1.5mm;
+      bottom: -1mm;
+      width: 8.5mm;
+      height: 8.5mm;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #b08cc8, var(--lilac-deep));
+      color: #fff;
+      font-family: "Ma Shan Zheng", "Kaiti SC", cursive;
+      font-size: 12px;
+      line-height: 8.5mm;
+      text-align: center;
+      box-shadow: 0 0 0 1.2px #fff;
+    }
+
+    .mid {
+      position: relative;
+      z-index: 1;
+      margin-top: 4mm;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 2.8mm;
+    }
+
+    .hello {
+      margin: 0;
+      font-family: "ZCOOL XiaoWei", "Songti SC", serif;
+      font-size: 12.5px;
+      color: var(--soft);
+      line-height: 1.55;
+      letter-spacing: 0.03em;
+    }
+
+    .acts {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2mm;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .acts li {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.6mm;
+      text-align: center;
+    }
+
+    .acts .icon {
+      width: 14mm;
+      height: 14mm;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1.2px solid rgba(155, 123, 184, 0.22);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 1.5px 4px rgba(58, 47, 74, 0.06);
+    }
+
+    .acts .icon svg {
+      width: 8mm;
+      height: 8mm;
+      display: block;
+    }
+
+    .acts .cap {
+      font-size: 9px;
+      color: var(--lilac-deep);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      line-height: 1.2;
+    }
+
+    .favor {
+      margin: 0;
+      font-size: 10px;
+      color: var(--soft);
+      line-height: 1.4;
+      letter-spacing: 0.02em;
+    }
+
+    .divider {
+      position: relative;
+      z-index: 1;
+      margin: 3mm 0 0;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(155, 123, 184, 0.45), transparent 85%);
+    }
+
+    .facts {
+      position: relative;
+      z-index: 1;
+      list-style: none;
+      margin: 2mm 0 0;
+      padding: 0;
+    }
+
+    .facts li {
+      padding: 2.2mm 0;
+      font-size: 11.5px;
+      line-height: 1.4;
+      font-weight: 500;
+    }
+
+    .facts li + li {
+      border-top: 1px solid var(--line);
+    }
+
+    .facts .label {
+      display: block;
+      font-size: 9px;
+      color: var(--lilac-deep);
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      margin-bottom: 0.6mm;
+    }
+
+    .bye {
+      position: relative;
+      z-index: 1;
+      margin: 2.5mm 0 0;
+      font-family: "ZCOOL XiaoWei", "Songti SC", serif;
+      font-size: 12px;
+      color: var(--ink);
+      text-align: right;
+      letter-spacing: 0.06em;
+    }
+
+    .bye span { color: var(--lilac-deep); }
+
+    @media print {
+      @page { size: A4; margin: 0; }
+      body { background: white; }
+      .toolbar, .edit-tip { display: none !important; }
+      #pages { gap: 0; padding: 0; }
+      .sheet {
+        margin: 0;
+        box-shadow: none;
+        width: 210mm;
+        height: 297mm;
+        page-break-after: always;
+        break-after: page;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sheet:last-child { page-break-after: auto; }
+      .card, .portrait img, .age, .acts .icon {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <p>方案 D · A4 一页 4 张 · 共 27 张。文案与活动安排可直接在下方 template 修改。</p>
+    <button type="button" onclick="window.print()">打印</button>
+  </div>
+
+  <p class="edit-tip">
+    浏览器打开后直接打印。头像：<code>invite/zhuoruo-avatar.png</code>
+  </p>
+
+  <div id="pages"></div>
+
+  <template id="card-template">
+    <article class="card">
+      <div class="top">
+        <div class="headline">
+          <p class="kicker">生日派对</p>
+          <h1 class="title">六岁生日<br />邀请函</h1>
+          <p class="name">王灼若</p>
+        </div>
+        <div class="portrait">
+          <img src="invite/zhuoruo-avatar.png" alt="王灼若" />
+          <span class="age" aria-label="6岁">6</span>
+        </div>
+      </div>
+
+      <div class="mid">
+        <p class="hello">诚邀你来参加我的六岁生日派对，一起玩耍、吃蛋糕，留下快乐的一天。</p>
+        <ul class="acts" aria-label="派对活动">
+          <li>
+            <span class="icon" aria-hidden="true">
+              <!-- 签到：剪贴板打勾 -->
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="12" y="12" width="24" height="28" rx="3" fill="#f3d4e0" stroke="#7a5a96" stroke-width="2"/>
+                <rect x="18" y="8" width="12" height="6" rx="2" fill="#b08cc8"/>
+                <path d="M18 24h12M18 30h8" stroke="#9b7bb8" stroke-width="2.2" stroke-linecap="round"/>
+                <circle cx="34" cy="34" r="8" fill="#7a5a96"/>
+                <path d="M30.5 34.2l2.2 2.2 4.5-5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="cap">签到</span>
+          </li>
+          <li>
+            <span class="icon" aria-hidden="true">
+              <!-- 套圈：三环 -->
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="18" cy="26" r="9" stroke="#7a5a96" stroke-width="3"/>
+                <circle cx="30" cy="22" r="9" stroke="#b08cc8" stroke-width="3"/>
+                <circle cx="24" cy="32" r="8" stroke="#e8a0b8" stroke-width="3"/>
+              </svg>
+            </span>
+            <span class="cap">套圈</span>
+          </li>
+          <li>
+            <span class="icon" aria-hidden="true">
+              <!-- 蛋糕 -->
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 40h24v-4c0-2-2-3-4-3H16c-2 0-4 1-4 3v4z" fill="#f3d4e0"/>
+                <path d="M14 33h20c1.5 0 3-1.2 3-2.8V26c0-1.6-1.5-3-3-3H14c-1.5 0-3 1.4-3 3v4.2c0 1.6 1.5 2.8 3 2.8z" fill="#c4a3d8"/>
+                <path d="M14 23c2-2 5-2 7 0 2-2 5-2 7 0 2-2 5-2 7 0v3H14v-3z" fill="#fff"/>
+                <rect x="22.5" y="12" width="3" height="8" rx="1" fill="#e8a84b"/>
+                <path d="M24 9c1.2 0 2.2 1.2 2 2.4-.2 1-1.1 1.6-2 1.6s-1.8-.6-2-1.6C21.8 10.2 22.8 9 24 9z" fill="#e07a62"/>
+              </svg>
+            </span>
+            <span class="cap">蛋糕</span>
+          </li>
+        </ul>
+        <p class="favor">每位小朋友都有小礼物带回家哦</p>
+      </div>
+
+      <div class="divider" aria-hidden="true"></div>
+
+      <ul class="facts">
+        <li>
+          <span class="label">时间</span>
+          2026年9月4日（周五）放学后
+        </li>
+        <li>
+          <span class="label">地点</span>
+          馨越公寓 30 号楼大厅
+        </li>
+      </ul>
+
+      <p class="bye">期待你来玩 <span>♡</span></p>
+    </article>
+  </template>
+
+  <script>
+    const COPY_COUNT = 27;
+    const pages = document.getElementById("pages");
+    const tpl = document.getElementById("card-template");
+
+    for (let i = 0; i < COPY_COUNT; i += 4) {
+      const sheet = document.createElement("section");
+      sheet.className = "sheet";
+      for (let j = 0; j < 4; j++) {
+        const node = tpl.content.cloneNode(true);
+        if (i + j >= COPY_COUNT) {
+          node.querySelector(".card").classList.add("empty");
+        }
+        sheet.appendChild(node);
+      }
+      pages.appendChild(sheet);
+    }
+  </script>
+</body>
+</html>

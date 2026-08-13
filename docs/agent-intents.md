@@ -1,7 +1,8 @@
 # CLI 问答 Agent 意图说明
 
 > 实现：`hub/shared/agent.py`（路由 + 模板） · `hub/shared/query.py`（查库）  
-> 入口：`python tools/memory_ask/main.py "你的问题"`
+> 入口：`python tools/memory_ask/main.py "你的问题"` · Desk `POST /api/ask` · Vue / iOS  
+> **阶段 2（当前）**：打磨路由与检索，少答非所问；清单见文末「阶段 2 目标」
 
 ## 设计原则
 
@@ -13,7 +14,7 @@
 | **B. 时间线** | `timestamp`、`location`、`photo_terms` | 人物/地点较强；`location` ~82%；`scene`/`tags`/`objects` ~90%+ | 最近去哪、第一次、有没有某标签 |
 | **C. 语义/感受** | `scene`、`emotion`、`tags` | scene/tags 已基本齐；`emotion` 仍偏稀（~40%） | 场景/标签可依赖；细腻表情类仍宜作补充 |
 
-新增意图时：先列自己常问的句子 → 标 A/B/C → 确认 SQLite 有字段 → 再加路由。**不要**在未匹配时默认返回「最近照片」（待改进）。
+新增意图时：先列自己常问的句子 → 标 A/B/C → 确认 SQLite 有字段 → 再加路由。未匹配时走 `unknown` + 可问示例（**不要**默认「最近照片」）。
 
 ## 处理流程
 
@@ -25,7 +26,7 @@
     → _llm_answer()         可选：Ollama 润色（失败则仍用模板）
 ```
 
-人物名从 `data/faces/registry.json` 读取；问句里未写人名且档案里只有一名成员时，默认该成员。
+人物名从 `data/faces/registry.json` 读取。问句未写人名时：若档案里 **恰好一名 `role=child`**（当前为面面），或有效成员仅一人，则默认该人；全库统计（「一共多少张」）不默认。
 
 ## 路由优先级
 
@@ -33,23 +34,27 @@
 
 0. `recent_photos` — **优先**：「列出最后 N 张 / 最近 N 张」（含「去哪了，列出10张」类复合问句）
 0b. `story_lookup` — 含「故事」
-0c. `person_home_timeline` — 住过哪 / 呆最久（家事件跨度）
-0d. `recent_outings` / `outings_at_place` / `outings_by_period` — 出门（含按年/季）
+0c. `person_artwork` — 画作 / 作品集
+0d. `person_home_timeline` — 住过哪 / 呆最久（家事件跨度）
+0e. `recent_outings` / `outings_at_place` / `outings_by_period` — 出门（含按年/季）
 1. `person_age_place_rank` — N 岁 + 去哪最多 / 待最久
 2. `library_stats` — 多少张 / 一共 / 统计
 3. `group_photos` — X和Y合影 / 合照有哪些
 4. `term_first` — 第一次 / 最早 / 什么时候 + 表情词
-5. `term_lookup` — 有没有 / 表情里 + 表情词
+5. `term_lookup` — 有没有 / 表情里 / **人名+表情短句**（面面哭）+ 表情词
 6. `person_age` — 几岁 / 多大
 7. `person_peak_day` — 哪天的照片最多 / 在什么地方
 8. `person_emotion_place_rank` — 表情 + 哪个地方最多（如「笑的最多」）
 9. `person_place_rank` — 常去 / **哪个地方**去最多（口语「去哪里了」不算排名；「呆最久」走家时间线）
 10. `person_cities_visited` — 哪些城市 / 哪些省（结构化地址）
 11. `person_places_visited` — 去过哪些地方（POI 列表）
-12. `person_at_place` — 去某地什么时候 / 去过几次
+12. `companions_at_place` — 哪些人 / 和谁 去过某地（同框人物）
+12b. `person_at_place` — 去某地什么时候 / 去过几次
 13. `person_recent_places` — 最近在哪 / 去过（时间序）
-14. `recent_photos` — 最近 + 照片，或仅「照片」
-15. **fallback** — 当前仍落到 `recent_photos`（已知问题）
+14. `recent_photos` — 最近 + 照片；或「人名的照片」（全量，非默认 10 张）
+14b. `keyword_search` — 有没有X / 搜X / X的照片 / **人名+活动短句**（面面骑车、面面坐船）
+14c. `keyword_first` — 第一次 / 最早 / 什么时候 + 活动词（面面第一次轮滑）
+15. **`unknown`** — 未匹配时提示可问示例（不再落到 `recent_photos`）
 
 ---
 
@@ -107,6 +112,49 @@ python tools/memory_ask/main.py "去年春天出门"
 | **触发** | 问句含「故事」 |
 | **查库** | `stories` 标题/正文；Vue「事件」Tab 创建 |
 
+### `person_artwork` — 画作 / 作品集
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「画作」「作品集」「画画」等 |
+| **参数** | `person`（可选）、`limit` |
+| **查库** | `get_person_artwork()` — vision 标签 + 同场事件关联（不要求画上标人物） |
+| **回答** | 相关照片列表；区分同场关联 / 画面含本人 |
+
+```bash
+python tools/memory_ask/main.py "面面的画作"
+```
+
+### `keyword_search` — 关键词检索（场景 / 地点 / 标签）
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「有没有X」「搜X」「X的照片」「关于X」等（X **不是**已知人名） |
+| **参数** | `query`（关键词）、`person`（可选）、`limit` |
+| **查库** | `search_photos(query=…)` — `scene` / `location` / `photo_terms` LIKE |
+| **回答** | 命中总数口语短答；`photos` 返回全部命中（上限内），Web 证据区分页展示 |
+
+```bash
+python tools/memory_ask/main.py "面面骑车的照片"
+python tools/memory_ask/main.py "蛋糕的照片"
+python tools/memory_ask/main.py "面面 搜公园"
+python tools/memory_ask/main.py "有关山西的照片"
+python tools/memory_ask/main.py "老家的照片"
+```
+
+表情类「面面哭 / 有没有哭」走 `term_lookup`（优先级更高）。  
+「骑车 / 坐船 / 游泳 / 玩水 / 爬山…」等人名+活动短句走 `keyword_search`（多数按 **actions** 匹配，减少背景误伤）。  
+地名「山西 / 忻州 / 老家」走 **省市区字段**（`location_province/city`）；`老家` 默认映射为 **忻州**（见 `query._PLACE_ALIASES`）。  
+**人名**「抱补的照片 / 面面的照片」走 `recent_photos`（`list_all`，返回该人全部照片，不是默认 10 张）。
+
+### `unknown` — 未识别
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 未匹配任何意图（含裸「最近」且无人名） |
+| **查库** | 无 |
+| **回答** | 「暂时无法理解」+ 可问示例 |
+
 ---
 
 ### `person_peak_day` — 哪天照片最多
@@ -122,6 +170,22 @@ python tools/memory_ask/main.py "去年春天出门"
 
 ```bash
 python tools/memory_ask/main.py "面面哪天的照片最多，在什么地方"
+```
+
+---
+
+### `companions_at_place` — 哪些人去过某地（同框）
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「哪些人 / 和谁 / 有谁」+ 去过 + 地名；可带锚点人名（如面面） |
+| **参数** | `person`（可选）、`place`、`limit`（证据图默认全量） |
+| **查库** | `get_companions_at_place()` — 该地（且含锚点时）照片上的同框人物排行 |
+| **回答** | 同框人物列表（按张数）+ 相关证据图 |
+
+```bash
+python tools/memory_ask/main.py "面面哪些人去过动物园"
+python tools/memory_ask/main.py "面面和谁去过迪士尼"
 ```
 
 ---
@@ -292,14 +356,16 @@ python tools/memory_ask/main.py "面面第一次哭是什么时候"
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 表情词 +（「表情 / 情绪」或「有…吗 / 有没有」或「照片」） |
-| **参数** | `person`（可选）、`term`、`term_type`（`emotion`） |
-| **查库** | `get_term_photo_stats()` — `photo_terms` LIKE 匹配 + `search_photos` 抽样 |
-| **回答** | 张数、细分词条（哭泣/哭/哭闹…）、最近几张列表 |
+| **触发** | 表情词 +（「表情 / 情绪」或「有…吗 / 有没有」或「照片」）；或 **人名+表情短句**（`面面哭` / `面面笑`）；或「为什么/为啥哭」 |
+| **参数** | `person`（可选）、`term`、`term_type`（`emotion`）、`focus`（`why` 可选） |
+| **查库** | `get_term_photo_stats()` — 仅 `photo_terms` 的 emotion 匹配 |
+| **回答** | 张数、细分词条；`focus=why` 时说明原因未标注并附场景摘要。证据图用模板（不经 LLM 砍数量） |
 
 示例：
 
 ```bash
+python tools/memory_ask/main.py "面面哭"
+python tools/memory_ask/main.py "面面为什么哭"
 python tools/memory_ask/main.py "表情里没有哭吗"
 python tools/memory_ask/main.py "面面有哭的照片吗"
 ```
@@ -347,9 +413,9 @@ python tools/memory_ask/main.py "面面最近在哪里玩"
 | 项 | 说明 |
 |----|------|
 | **触发** | 句中含 ≥2 位家庭成员 +「合影/合照/同框」；或「A和B」+「照片/有哪些」 |
-| **参数** | `persons`（按问句出现顺序）、`limit`（默认 20） |
+| **参数** | `persons`（按问句出现顺序）、`limit`（默认全量；写「N张」才截断） |
 | **查库** | `get_group_photos()` — `photo_people` 同时包含所有指定成员 |
-| **回答** | 合影总数 + 最近若干张列表 |
+| **回答** | 合影总数 + 全部证据图（Web 分页） |
 
 示例：
 
@@ -362,19 +428,21 @@ python tools/memory_ask/main.py "爸爸和妈妈合照"
 
 ---
 
-### `recent_photos` — 最近照片列表
+### `recent_photos` — 最近照片 / 某人全部照片
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 「最近」+「照片」；或句中只有「照片」；**或未匹配任何意图时的 fallback** |
-| **参数** | `person`（可选）、`limit` |
-| **查库** | `get_recent_photos()` — `list_timeline` 或 `search_photos(person=…)` |
-| **回答** | `photo_id`、时间、人物、地点、场景 |
+| **触发** | 「最近」+「照片」；「列出 N 张」；或「人名的照片」（无「最近」） |
+| **参数** | `person`（可选）、`limit`（「最近」默认 10；「人名的照片」默认全量/`list_all`） |
+| **查库** | `get_recent_photos()` — `list_timeline` 或 `search_photos(person=…)`；`list_all` 时附 `photo_count` |
+| **回答** | 最近：口语「最近有 N 张」；某人全量：「一共找到 N 张」+ 证据图（Web 分页） |
 
 示例：
 
 ```bash
 python tools/memory_ask/main.py "最近的照片"
+python tools/memory_ask/main.py "抱补的照片"
+python tools/memory_ask/main.py "面面最近10张照片"
 ```
 
 ---
@@ -395,20 +463,26 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 
 | 问题 | 说明 |
 |------|------|
-| 未识别问题 | 仍默认 `recent_photos`，易答非所问 → 计划改为 `unknown` + 示例提示 |
 | 说法变体 | 正则无法覆盖所有中文；高频句式靠迭代补充 |
 | emotion / scene | `scene`/`tags`/`objects` 已约九成有值；`emotion` 仍约四成，表情类统计可能偏少 |
-| 复合条件 | 如「4岁在公园哭过几次」= 年龄 × 地点 × 表情，尚未实现 |
-| 地点搜索 | `person_at_place` 已支持按地名模糊查；`search_photos` 通用搜索仍仅在 index 层 |
+| 复合条件 | 如「4岁在公园哭过几次」= 年龄 × 地点 × 表情，尚未实现（阶段 2 P1） |
+| 单人默认 | 问句无人名且 registry 仅一名成员时默认——**尚未实现**（阶段 2 P1） |
+| 关键词边界 | `keyword_search` 靠句式抽取；过短/停用词会落到 `unknown` |
 
 ---
 
-## 规划中的意图（未实现）
+## 阶段 2 目标
 
-| 意图 | 触发设想 | 前置条件 |
-|------|----------|----------|
-| `person_age_emotion` | 「4岁时常什么表情」 | emotion 覆盖率已约 40%，可开做；仍需接受未标注照片 |
-| `unknown` | 无法路由 | 替换 fallback 行为 |
+| 优先级 | 项 | 状态 |
+|--------|----|------|
+| P0 | `unknown` 意图 | ✅ 已替换 fallback |
+| P0 | `keyword_search` | ✅ 已接线 `search_photos` |
+| P1 | 复合过滤（先做 2 维） | 🚧 人名×活动 / 人名×表情短句已通；地点×年龄等仍待做 |
+| P1 | 单人默认人物 | ✅ 唯一 `child`（面面）或唯一成员时默认 |
+| P2 | 端上证据 | iOS 证据面板向 Web 对齐；示例芯片覆盖更多意图 |
+| — | 暂不做 | 向量 RAG、对话记忆、流式输出 |
+
+可选：`person_age_emotion`（「N 岁时常什么表情」）。
 
 ---
 
@@ -420,6 +494,9 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 | `hub/shared/query.py` | `gather_facts` 与各 `get_*` 查询 |
 | `hub/shared/index_db.py` | `search_photos`、`list_timeline`、表结构 |
 | `tools/memory_ask/main.py` | CLI 入口 |
+| `tools/memory_desk/app.py` | `POST /api/ask` |
+| `web/src/components/MemoryAsk.vue` | Web 问答 UI |
+| `apps/ios/MemoryGraph/Views/Ask/` | iOS 问问 |
 | `data/faces/registry.json` | 家庭成员姓名、birth_date |
 
-日常操作见 [operations.md](operations.md)；整体架构见 [architecture.md](architecture.md)。
+日常操作见 [operations.md](operations.md)；整体架构见 [architecture.md](architecture.md)；阶段划分见 [Project Charter](Project%20Charter.md)。

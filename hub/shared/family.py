@@ -248,6 +248,24 @@ def load_display_names(registry_file: Path | None = None) -> dict[str, str]:
     return {pid: m.name for pid, m in load_family_members(registry_file).items()}
 
 
+def default_ask_person(registry_file: Path | None = None) -> str:
+    """问答默认人物：仅一名 child 时用该人；否则仅一名有效成员时用该人。
+
+    当前家庭 child 仅「面面」时，无人名短句（哭 / 骑车 / 最近去哪）会落到她。
+    """
+    members = [
+        m
+        for m in load_family_members(registry_file).values()
+        if m.name and not _is_placeholder_name(m.person_id, m.name)
+    ]
+    children = [m for m in members if m.role == "child"]
+    if len(children) == 1:
+        return children[0].name
+    if len(members) == 1:
+        return members[0].name
+    return ""
+
+
 def compute_age_at_photo(
     birth_date: date,
     photo_date: date,

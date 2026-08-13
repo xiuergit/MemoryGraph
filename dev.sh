@@ -52,8 +52,18 @@ if [[ ! -d "$ROOT/web/node_modules" ]]; then
   (cd "$ROOT/web" && npm install)
 fi
 
-echo "启动 Desk API（--auto-port --no-browser）…"
-"$PYTHON" tools/memory_desk/main.py --auto-port --no-browser &
+# 局域网 IPv4，供 iOS App 设置填写（优先 en0，其次 en1）
+lan_ip() {
+  local ip=""
+  ip="$(ipconfig getifaddr en0 2>/dev/null || true)"
+  if [[ -z "$ip" ]]; then
+    ip="$(ipconfig getifaddr en1 2>/dev/null || true)"
+  fi
+  printf '%s' "$ip"
+}
+
+echo "启动 Desk API（--host 0.0.0.0 --auto-port --no-browser）…"
+"$PYTHON" tools/memory_desk/main.py --host 0.0.0.0 --auto-port --no-browser &
 DESK_PID=$!
 
 desk_ready=0
@@ -78,7 +88,13 @@ if [[ "$desk_ready" -ne 1 ]]; then
 fi
 
 DESK_PORT="$(tr -d '[:space:]' < "$PORT_FILE")"
+LAN_IP="$(lan_ip)"
 echo "Desk 已就绪 → http://127.0.0.1:${DESK_PORT}/"
+if [[ -n "$LAN_IP" ]]; then
+  echo "手机/iPad:  http://${LAN_IP}:${DESK_PORT}/  （App 设置填 ${LAN_IP}，端口 ${DESK_PORT}）"
+else
+  echo "手机/iPad:  填 Mac 局域网 IP（系统设置 → 网络）+ 端口 ${DESK_PORT}"
+fi
 echo "启动 Vue Inspector…"
 echo "浏览器请打开 Vite 提示的地址（通常 http://127.0.0.1:5173）"
 echo "Ctrl+C 停止前后端"

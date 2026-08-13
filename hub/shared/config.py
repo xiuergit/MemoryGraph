@@ -42,11 +42,22 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 )
 
+# 支持的视频扩展名（小写，含点号）
+SUPPORTED_VIDEO_EXTENSIONS: frozenset[str] = frozenset(
+    {".mp4", ".mov", ".m4v"}
+)
+
 # JSON 输出缩进，便于人工查看
 JSON_INDENT = 2
 
 # 当前协议版本，与 schemas/photo.v1.json 一致
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "1.2"
+
+# 视频协议版本，与 schemas/video.v1.json 一致
+VIDEO_SCHEMA_VERSION = "1.0"
+
+# 视频关键帧缓存（供 analyze_image 复用；可删，非真源）
+VIDEO_FRAME_CACHE_DIR = DATA_DIR / "cache" / "video_frames"
 
 # 高德逆地理编码 Key（环境变量，勿写入代码）
 # 申请：https://lbs.amap.com/ → 创建应用 → Web 服务 API

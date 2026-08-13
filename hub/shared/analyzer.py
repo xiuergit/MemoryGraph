@@ -1,9 +1,12 @@
-"""图片分析入口。
+"""图片 / 视频分析入口。
 
-整个工程唯一的 AI 分析接口：analyze_image()。
+图像：analyze_image()。视频：analyze_video()（抽关键帧后复用 analyze_image）。
+其它模块不得直接 import 模型 SDK。
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from hub.shared.face import scan_faces
 from hub.shared.outfit import apply_outfit_fallback
@@ -67,3 +70,25 @@ def analyze_image(
 
     result = _merge_analysis(vision, people, face_detected)
     return dict(result)
+
+
+def analyze_video(
+    video_path: str,
+    *,
+    timestamp: str = "",
+    video_id: str = "",
+) -> dict:
+    """分析单段视频：抽一帧后走 analyze_image()。
+
+    返回字段与 analyze_image 相同（people/scene/…），供 build_video_json 使用。
+    """
+    from hub.shared.video_meta import extract_keyframe, get_video_id
+
+    path = Path(video_path)
+    vid = video_id or get_video_id(path)
+    frame_path = extract_keyframe(path, video_id=vid)
+    return analyze_image(
+        str(frame_path),
+        timestamp=timestamp,
+        photo_id=vid,
+    )

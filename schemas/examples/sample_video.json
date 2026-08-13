@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "video_id": "2025_2025年10月海昌_IMG_8079_v",
+  "timestamp": "2025-10-04T15:12:00",
+  "device_id": "iphone",
+  "people": [],
+  "scene": "",
+  "location": "",
+  "location_coords": "",
+  "objects": [],
+  "actions": [],
+  "emotion": [],
+  "tags": [],
+  "quality": {
+    "blur": false,
+    "face_detected": false
+  },
+  "source": {
+    "path": "/Users/you/MemoryGraph/data/photos/2025/2025年10月海昌/IMG_8079.MOV",
+    "width": 1920,
+    "height": 1080,
+    "duration_s": 3.2,
+    "fps": 30.0,
+    "container": "mov"
+  },
+  "related_ids": [
+    {
+      "id": "2025_2025年10月海昌_IMG_8079",
+      "media_type": "photo",
+      "relation": "live_photo"
+    }
+  ]
+}

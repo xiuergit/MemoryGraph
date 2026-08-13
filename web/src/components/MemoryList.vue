@@ -16,6 +16,15 @@
             :value="y"
           />
         </el-select>
+        <el-select-v2
+          v-model="folderFilter"
+          placeholder="按文件夹"
+          clearable
+          filterable
+          class="folder-select"
+          :options="folderSelectOptions"
+          @change="handleFolderChange"
+        />
         <el-date-picker
           v-model="dateFrom"
           type="date"
@@ -91,11 +100,22 @@
           <el-option label="无人脸" value="no" />
           <el-option label="有脸未识别" value="needs_faces" />
         </el-select>
+        <el-select
+          v-model="mediaTypeFilter"
+          placeholder="媒体类型"
+          clearable
+          class="media-select"
+          @change="handleFilterChange"
+        >
+          <el-option label="照片" value="photo" />
+          <el-option label="视频" value="video" />
+          <el-option label="音频" value="audio" />
+        </el-select>
       </div>
       <div class="filter-row">
         <el-input
           v-model="searchKeyword"
-          placeholder="搜索 photo_id、时间、地点、人物、场景"
+          placeholder="搜索 id、时间、地点、人物、场景"
           clearable
           class="search-input"
           @keyup.enter="loadData"
@@ -272,6 +292,8 @@
                 draggable="false"
               />
               <div v-else class="card-no-image">无图</div>
+              <span v-if="row.media_type === 'video'" class="media-badge">视频</span>
+              <span v-else-if="row.media_type === 'audio'" class="media-badge audio">音频</span>
               <button
                 type="button"
                 class="card-check"
@@ -304,6 +326,13 @@
               </div>
               <div class="card-meta" :class="{ empty: !row.location }" :title="row.location || ''">
                 {{ row.location || '无地址' }}
+              </div>
+              <div
+                class="card-meta weather"
+                :class="{ empty: !formatWeather(row) }"
+                :title="formatWeather(row) || '无天气'"
+              >
+                {{ formatWeather(row) || '无天气' }}
               </div>
               <div class="card-meta" :class="{ empty: !row.people }" :title="row.people || ''">
                 {{ row.people || '无人物' }}
@@ -353,12 +382,15 @@ const searchKeyword = ref('')
 const locationFilter = ref('')
 const personFilter = ref('')
 const faceFilter = ref('')
+const mediaTypeFilter = ref('')
 const yearFilter = ref('')
+const folderFilter = ref('')
 const sortOrder = ref('desc')
 const timestampFilter = ref('')
 const dateFrom = ref('')
 const dateTo = ref('')
 const years = ref([])
+const folders = ref([])
 const locations = ref([])
 const locationItems = ref([])
 const registryPeople = ref([])
@@ -396,6 +428,13 @@ const locationSelectOptions = computed(() => [
   })),
 ])
 
+const folderSelectOptions = computed(() =>
+  folders.value.map((f) => ({
+    value: f,
+    label: f,
+  })),
+)
+
 async function loadYears() {
   try {
     const res = await axios.get('/api/memory/years')
@@ -403,6 +442,16 @@ async function loadYears() {
   } catch (error) {
     console.error('加载年份列表失败:', error)
     years.value = []
+  }
+}
+
+async function loadFolders() {
+  try {
+    const res = await axios.get('/api/memory/folders')
+    folders.value = res.data.folders || []
+  } catch (error) {
+    console.error('加载文件夹列表失败:', error)
+    folders.value = []
   }
 }
 
@@ -447,8 +496,14 @@ async function loadData() {
     if (faceFilter.value) {
       params.face = faceFilter.value
     }
+    if (mediaTypeFilter.value) {
+      params.media_type = mediaTypeFilter.value
+    }
     if (yearFilter.value) {
       params.year = yearFilter.value
+    }
+    if (folderFilter.value) {
+      params.folder = folderFilter.value
     }
     if (dateFrom.value) {
       params.date_from = dateFrom.value
@@ -490,6 +545,17 @@ function handleYearChange() {
   handleFilterChange()
 }
 
+function handleFolderChange() {
+  // 选文件夹时按路径浏览更直观；清空年份以免 timestamp 年与目录年不一致漏结果
+  if (folderFilter.value) {
+    yearFilter.value = ''
+    if (sortOrder.value === 'desc') {
+      sortOrder.value = 'folder'
+    }
+  }
+  handleFilterChange()
+}
+
 function handleFilterChange() {
   page.value = 1
   loadData()
@@ -511,7 +577,9 @@ function resetSearch() {
   locationFilter.value = ''
   personFilter.value = ''
   faceFilter.value = ''
+  mediaTypeFilter.value = ''
   yearFilter.value = ''
+  folderFilter.value = ''
   sortOrder.value = 'desc'
   timestampFilter.value = ''
   dateFrom.value = ''
@@ -853,6 +921,21 @@ function getPreviewUrl(path) {
   return `/api/preview?path=${encodeURIComponent(path)}&size=640`
 }
 
+function formatWeather(row) {
+  const condition = (row?.weather_condition || '').trim()
+  if (!condition) return ''
+  const min = row.weather_temp_min_c
+  const max = row.weather_temp_max_c
+  const mean = row.weather_temp_mean_c
+  if (min != null && max != null && !Number.isNaN(Number(min)) && !Number.isNaN(Number(max))) {
+    return `${condition} · ${Math.round(Number(min))}–${Math.round(Number(max))}℃`
+  }
+  if (mean != null && !Number.isNaN(Number(mean))) {
+    return `${condition} · ${Math.round(Number(mean))}℃`
+  }
+  return condition
+}
+
 function formatTime(timestamp) {
   if (!timestamp) return '-'
   const date = new Date(timestamp)
@@ -867,6 +950,7 @@ function formatTime(timestamp) {
 
 onMounted(() => {
   loadYears()
+  loadFolders()
   loadLocations()
   loadRegistryPeople()
   loadData()
@@ -905,6 +989,10 @@ onBeforeUnmount(() => {
   width: 110px;
 }
 
+.folder-select {
+  width: 200px;
+}
+
 .date-picker {
   width: 150px;
 }
@@ -936,6 +1024,10 @@ onBeforeUnmount(() => {
 
 .face-select {
   width: 150px;
+}
+
+.media-select {
+  width: 120px;
 }
 
 .search-input {
@@ -1089,6 +1181,24 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+.media-badge {
+  position: absolute;
+  left: 0.35rem;
+  bottom: 0.35rem;
+  z-index: 2;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+.media-badge.audio {
+  background: rgba(30, 80, 120, 0.8);
+}
+
 .card-no-image {
   width: 100%;
   height: 100%;
@@ -1180,6 +1290,10 @@ onBeforeUnmount(() => {
 
 .card-meta.folder {
   color: #8b9cb3;
+}
+
+.card-meta.weather:not(.empty) {
+  color: #9ecbff;
 }
 
 .card-meta.empty {

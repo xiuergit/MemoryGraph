@@ -1,11 +1,11 @@
 # MemoryGraph
 
-家庭私有记忆系统：照片 → 标准 JSON → 索引 → 问答，长期保存在家用 Mac 上。
+家庭私有记忆系统：照片 / 视频 / 音频 → 标准 JSON → 索引 → 问答，长期保存在家用 Mac 上。
 
 ## 架构
 
 ```
-导出原图 / iPhone 上传              家用 Mac（记忆中枢）
+iPhone 导出原图                    家用 Mac（记忆中枢）
         │                                  │
         └────────► data/photos/            │
                      │                     │
@@ -22,22 +22,28 @@
               memory_events sync（可选）   │
                      │                     │
                      ▼                     │
-        memory_ask / Desk API / Vue Inspector
+        memory_ask / Desk API
+                     │
+        ┌────────────┼────────────┐
+        ▼            ▼            ▼
+   Vue Inspector   CLI ask    iOS 消费端
 ```
 
 - **不上云端**：照片与 AI 推理均在 Mac 本地；逆地理仅发送 GPS 坐标
-- **主路径**：iPhone 导出原图 → Mac 批量处理（iOS App 可选）
-- **协议统一**：`schemas/photo.v1.json`（当前 v1.1，含 `location_coords`）
+- **采集**：iPhone 导出原图 → Mac 批量处理（**不做** iOS 上传 App）
+- **消费**：Vue Inspector + iOS「问问 / 谁」连 Desk
+- **协议**：`photo.v1`（生产）+ `video.v1` / `audio.v1`（协议已定）；索引用 `media_type`；见 [media-memory.md](docs/media-memory.md)
+- **当前阶段（阶段 2）**：结构化问答打磨（见 [Project Charter](docs/Project%20Charter.md)、[agent-intents.md](docs/agent-intents.md)）；视频入库可并行
 
 ## 目录结构
 
 ```
 MemoryGraph/
-├── schemas/              # JSON 协议（单一事实来源）
-├── apps/ios/             # iPhone 采集 App（待建）
+├── schemas/              # JSON 协议（photo / video / audio.v1）
+├── apps/ios/             # iOS 消费端（问问 / 谁；不做上传）
 ├── hub/
 │   ├── shared/           # Schema、分析器、索引、Agent
-│   └── mac_server/       # 本地 HTTP 服务，接收 iOS 上传
+│   └── mac_server/       # 上传骨架（暂不推进）
 ├── tools/
 │   ├── photo2json/       # Mac 批量：photos → memory
 │   ├── face_enroll/      # 人脸库注册
@@ -90,15 +96,13 @@ python tools/memory_index/main.py sync
 python tools/memory_events/main.py sync
 python tools/memory_ask/main.py "最近出去玩了哪些"
 
-# 3c. 本地 Web（可选）
-python tools/memory_desk/main.py --auto-port   # API，默认 8766
+# 3c. 本地 Web（Vue / iOS 消费端都连 Desk）
+python tools/memory_desk/main.py --host 0.0.0.0 --auto-port   # API，默认 8766
 
 # Vue Inspector（列表 / 问答 / 事件 / 详情 / 地址缓存 / 人脸库 / 维护工具）
 cd web && npm install && npm run dev           # 浏览器打开 Vite 提示的地址
 
-# 4. 启动 Mac Hub（可选，iOS 上传用）
-python hub/mac_server/main.py
-# 服务地址: http://0.0.0.0:8765
+# iOS 消费端：open apps/ios/MemoryGraph.xcodeproj（见 apps/ios/README.md）
 ```
 
 Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
@@ -106,8 +110,10 @@ Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 ## 文档
 
 - **[回家操作手册](docs/operations.md)** — 执行流程、环境配置、命令速查、注意事项
-- [项目章程](docs/Project%20Charter.md) — 愿景与阶段目标
-- [架构说明](docs/architecture.md) — 双端分工、隐私边界、入库流程
+- [项目章程](docs/Project%20Charter.md) — 愿景与阶段目标（**阶段 2 = 修问答**）
+- [架构说明](docs/architecture.md) — 采集 / 消费分工、隐私边界、入库流程
+- [问答意图](docs/agent-intents.md) — Agent 路由与阶段 2 打磨清单
+- [多媒体记忆协议](docs/media-memory.md) — photo / video / audio 与 Live Photo 约定
 - [AGENTS.md](AGENTS.md) — AI 协作约束
 
 ## 当前状态
@@ -116,8 +122,11 @@ Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 - ✅ `tools/location_mapping` + Vue「地址缓存」：`.geocode_cache.json` 纠错（真源），改完 `regeocode-locations` 写 JSON
 - ✅ `tools/memory_index`：SQLite 索引（JSON 为真源）
 - ✅ `tools/memory_events`：同日同地 outing / 家事件聚合；`memory_annotations.json` 真源 + overlay 重挂、stories
-- ✅ `tools/memory_ask`：CLI 问答（15+ 意图；默认 file:// 链接）
+- ✅ `tools/memory_ask`：CLI 问答（20+ 意图；默认 file:// 链接）
 - ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
+- ✅ `apps/ios/`：消费端（问问 / 谁；语音）；**不做**上传
 - ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`
-- ⏸ Mac Hub：`hub/mac_server`（`POST /import` 骨架可用；iOS App 待开发）
-- 🔜 详情页改 `people[]`、筛选结果时间轴视图、向量 RAG、video/audio pipeline
+- 🚧 **阶段 2**：结构化问答打磨（`unknown` fallback、关键词意图、复合条件等）
+- ❌ iOS 上传 / `mac_server` 日常推进：暂不需要
+- ✅ 多媒体协议：`schemas/video.v1.json` / `audio.v1.json`（pipeline 未做）
+- 🔜 详情页改 `people[]`、筛选结果时间轴、向量 RAG、video/audio 入库

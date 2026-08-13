@@ -6,29 +6,30 @@
 
 | 组件 | 角色 |
 |------|------|
-| **iPhone / 导出** | 采集端：相册导出或（可选）App 同步到 Mac |
-| **Mac（Python）** | 记忆中枢：本地 AI 分析、索引、问答 |
-| **JSON** | 记忆原子（唯一数据源），协议见 `schemas/photo.v1.json` |
-| **SQLite** | 检索索引（可由 JSON 重建，非真源） |
+| **iPhone / 导出** | 采集：系统相册导出到 Mac（**不做** App 上传） |
+| **Mac（Python）** | 记忆中枢：本地 AI 分析、索引、问答 API |
+| **Vue / iOS 消费端** | 问 / 筛 / 看：连 Desk；iOS 不跑大模型 |
+| **JSON** | 记忆原子（唯一数据源）；协议按形态分：`photo.v1` / `video.v1` / `audio.v1`（见 [media-memory.md](media-memory.md)） |
+| **SQLite** | 检索索引（可由 JSON 重建，非真源）；投影含 `media_type`（规划） |
 
-## 主流程（Mac 导出路径，当前常用）
+## 主流程（Mac 导出路径）
 
 ```
-data/photos/*.{jpg,heic,...}
+data/photos/*.{jpg,heic,...}   （同目录可有 .mov/.mp4；视频入库见 media-memory）
         │
         ▼
-tools/photo2json/main.py
+tools/photo2json/main.py       （视频/音频 pipeline 另议，协议已定）
         │
         ├── hub/shared/utils.py        EXIF、尺寸、GPS
         ├── hub/shared/geocode.py      逆地理 → location（仅发坐标，不上传照片）
-        ├── hub/shared/analyzer.py     唯一 AI 入口 analyze_image()
+        ├── hub/shared/analyzer.py     图像 AI 入口 analyze_image()
         │      ├── vision.py           Ollama 视觉（scene/tags/objects…）
         │      ├── face.py             InsightFace 人脸识别
         │      └── outfit.py           CLIP 衣着兜底
         └── location_cluster.py        同日相近 GPS 归一 location
         │
         ▼
-data/memory/{photo_id}.json     ← 唯一数据源
+data/memory/{id}.json           ← 唯一数据源（photo_id / video_id / audio_id）
         │
         ▼
 tools/memory_index/main.py sync
@@ -40,10 +41,10 @@ data/memorygraph.db             ← 可删重建
 tools/memory_events/main.py sync   ← 可选；出门/家事件聚合
         │
         ▼
-tools/memory_ask/main.py        CLI 自然语言问答
+tools/memory_ask / Desk API
         │
-        ▼
-tools/memory_desk/ + web/       Vue Inspector（JSON / 问答 / 事件 / 地址缓存 / 维护）
+        ├── web/ Vue Inspector
+        └── apps/ios/ 消费端（问问 / 谁）
 ```
 
 **地址纠错**（有 GPS）：改 `data/.geocode_cache.json`（Vue 或 `tools/location_mapping`）→ `--regeocode-locations --no-normalize-after` → `sync`。家附近已拆 POI 时勿再跑 `--normalize-locations`。
@@ -52,38 +53,27 @@ tools/memory_desk/ + web/       Vue Inspector（JSON / 问答 / 事件 / 地址�
 
 **增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）；人脸库变更后用 `--backfill faces --refill`。
 
-### 路径 B：iPhone App 上传（可选，骨架已有）
+### 路径 B：iPhone App 上传 ❌ 暂不做
 
-```
-相册选图 → Swift EXIF + JSON 骨架
-    │
-    ▼
-POST /import（局域网，默认 8765）
-    │
-    ▼
-hub/mac_server/server.py
-    ├── 原图 → data/photos/
-    └── JSON → data/memory/（Mac 可补全 AI 字段）
-```
-
-两条路径最终落到**同一目录、同一 Schema**。当前主路径为 **Mac 批量处理已导出原图**，iOS App 待开发。
+曾预留 `hub/mac_server` `POST /import` 骨架。**当前不需要、不推进**；采集一律「导出原图到 Mac」再跑 `photo2json`。`apps/ios` 是消费端，不是上传端。
 
 ## 存储布局
 
 ```
 data/
-├── photos/                  # 原图
-├── memory/                  # 一图一 JSON，与 photo_id 一一对应
+├── photos/                  # 原媒体（图/视频等；gitignore）
+├── memory/                  # 一条媒体一 JSON（id = photo_id | video_id | audio_id）
 ├── faces/                   # 人脸参考照 + registry.json
 ├── memorygraph.db           # SQLite 索引（sync 重建）
 ├── memory_annotations.json  # 事件意义 / 故事真源（跨机必拷）
 ├── .geocode_cache.json      # 高德逆地理缓存（地址纠错真源，v6 key）
+├── .weather_cache.json      # Open-Meteo 日天气缓存（日+粗格点）
 ├── location_canonical.json  # 可选；合并别名用（家附近「拆开 POI」时通常留空）
 ├── .trash/                  # Desk 删除回收（photos/ + memory/）
 └── cache/outfit/            # CLIP 当日穿搭向量缓存
 ```
 
-`photo_id` = 文件名（不含扩展名），如 `2025_IMG_3830`。
+id 规则见 [media-memory.md](media-memory.md)：照片为路径 stem；视频 stem+`_v`；音频 stem+`_a`。Live Photo = photo + video + `related_ids`。
 
 ## 隐私边界
 
@@ -91,7 +81,7 @@ data/
 |------|------|
 | 照片不上传公有云 | 视觉/人脸均在 Mac 本地（Ollama、InsightFace、CLIP） |
 | 逆地理 | 仅向高德发送 GPS 坐标，不上传图片；结果缓存于本地 |
-| 手机 → 家 | 仅局域网 HTTP（默认端口 8765） |
+| 手机 → 家 | 仅局域网 HTTP（Desk，默认 8766）；**不做**公网暴露 |
 | Mac 数据不外泄 | 不做公网端口转发 |
 | 可导出 | JSON 纯文本 + 原图文件夹，随时拷贝 |
 
@@ -99,13 +89,14 @@ data/
 
 | 模块 | 职责 |
 |------|------|
-| `schemas/` | 协议定义 |
-| `hub/shared/schema.py` | Python 侧 Schema 实现 |
+| `schemas/` | 协议定义（photo / video / audio.v1） |
+| `hub/shared/schema.py` | Python 侧照片 Schema 实现（video/audio 随 pipeline） |
 | `hub/shared/analyzer.py` | **唯一 AI 入口** `analyze_image()` |
 | `hub/shared/vision.py` | Ollama 视觉模型 |
 | `hub/shared/face.py` | InsightFace 人脸库匹配 |
 | `hub/shared/outfit.py` | CLIP 衣着兜底 |
 | `hub/shared/geocode.py` | 高德逆地理、`.geocode_cache.json` CRUD |
+| `hub/shared/weather.py` | 日天气（Open-Meteo）、`.weather_cache.json`；`photo2json --backfill weather` |
 | `hub/shared/location_cluster.py` | 同日 GPS 聚类、regeocode、`manual_location` 清理 |
 | `hub/shared/location_canonical.py` | 缓存别名合并（可选）；按地名删缓存 |
 | `hub/shared/backfill.py` | 增量补全 vision / faces |
@@ -124,8 +115,8 @@ data/
 | `tools/memory_stats/` | 数据健康报告 |
 | `tools/find/` | 按文件名搜索 CLI |
 | `hub/shared/photo_delete.py` | 删除照片（`.trash` + 清索引） |
-| `hub/mac_server/` | iOS 上传接收（可选） |
-| `apps/ios/` | iPhone 采集 App（待开发） |
+| `hub/mac_server/` | 上传接收骨架（**暂不推进**） |
+| `apps/ios/` | iOS 消费端：问答 / 按人看图（连 Desk；**不做**上传） |
 
 ## 阶段规划
 
@@ -133,10 +124,14 @@ data/
 |------|------|------|
 | **0** | Mac 批量 Photo→JSON | ✅ 完成 |
 | **1** | 本地视觉 + 人脸识别 | ✅ Ollama + InsightFace + CLIP |
-| **2** | iOS 上传 / 日常同步 | ⏸ 骨架有；当前用「导出到 Mac」 |
-| **3** | 记忆库索引与检索 | ✅ SQLite + CLI + Desk + Vue（问答/事件/列表筛选）；筛选结果时间轴 🔜 |
+| **2** | 结构化问答打磨 | 🚧 **当前**（fallback / 关键词意图 / 复合条件等，见 [agent-intents.md](agent-intents.md)） |
+| **3** | 记忆库索引与检索 | ✅ SQLite + CLI + Desk + Vue + iOS 消费端；筛选结果时间轴 🔜 |
 | **4** | Event 聚合 v1 | ✅ `memory_events sync` + Vue「事件」Tab + 相关问答意图 |
-| **5+** | 向量 RAG、筛选时间轴、video/audio | 🔜 结构化问答优先；**不做**全库相册式时间轴 |
+| — | iOS 上传 / 日常同步 | ❌ 暂不做（导出到 Mac） |
+| **5+** | 向量 RAG、筛选时间轴 | 🔜；**不做**全库相册式时间轴 |
+| **并行** | video/audio JSON pipeline | 协议 ✅（`video.v1` / `audio.v1`）；实现可与阶段 2 并行，见 [media-memory.md](media-memory.md) |
+
+> 原「阶段 2 = iOS 上传」已取消，编号改用于当前问答打磨。阶段 3/4 核心功能已完成。
 
 ## 浏览与时间轴（产品边界）
 
@@ -153,7 +148,7 @@ data/
 ## 技术选型
 
 - **Mac 分析**：Python + Ollama（Qwen2.5-VL 等）+ InsightFace + open-clip
-- **Mac 问答**：Ollama 文本模型（`OLLAMA_CHAT_MODEL`）+ 规则路由
-- **Mac 服务**：FastAPI + uvicorn
+- **Mac 问答**：Ollama 文本模型（`OLLAMA_CHAT_MODEL`）+ 规则路由（阶段 2 打磨中）
+- **Mac 服务**：FastAPI + uvicorn（Desk）
 - **索引**：SQLite（`memorygraph.db`，JSON 为真源）
-- **iOS**：SwiftUI + PhotosUI（远期，能用即可）
+- **iOS**：SwiftUI 消费端（问问 / 谁；连 Desk；不做上传）

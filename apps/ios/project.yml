@@ -1,0 +1,39 @@
+name: MemoryGraph
+options:
+  bundleIdPrefix: family.memorygraph
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: zh-Hans
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: "需要访问家里的 Mac，才能问答和看照片。"
+    INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "把你说的话转成问题，问问家里的记忆。"
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: "按住说话提问时需要用麦克风。"
+    GENERATE_INFOPLIST_FILE: YES
+targets:
+  MemoryGraph:
+    type: application
+    platform: iOS
+    sources:
+      - path: MemoryGraph
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: family.memorygraph.app
+        PRODUCT_NAME: MemoryGraph
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: MemoryGraph/Info.plist
+      properties:
+        CFBundleDisplayName: 记忆
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false

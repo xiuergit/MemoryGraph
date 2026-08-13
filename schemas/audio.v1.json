@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://memorygraph.local/schemas/audio.v1.json",
+  "title": "MemoryGraph Audio Memory",
+  "description": "单段音频的结构化记忆单元。核心语义字段与 photo.v1 / video.v1 同构；pipeline 未实现前允许语义字段为空。不设 Live Photo 类第三协议。",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "audio_id",
+    "timestamp",
+    "device_id",
+    "people",
+    "scene",
+    "location",
+    "objects",
+    "actions",
+    "emotion",
+    "tags",
+    "quality",
+    "source"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": ["1.0"],
+      "description": "audio.v1 协议版本；与 photo / video 的编号彼此独立"
+    },
+    "audio_id": {
+      "type": "string",
+      "description": "全库唯一（与 photo_id / video_id 不冲突）。建议：相对 photos/（或未来 audio 根目录）路径 stem + 后缀 _a"
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "录制/创建时间 ISO 8601；无元数据则为空字符串"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "来源设备标识，如 iphone / mac；未知可为空字符串"
+    },
+    "people": {
+      "type": "array",
+      "description": "若后续声纹/ASR 可识别说话人则填写；否则 []",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "confidence": { "type": "number" },
+          "role": { "type": "string" },
+          "match_method": {
+            "type": "string",
+            "enum": ["face", "outfit", "voice"],
+            "description": "voice=声纹/说话人；face/outfit 保留与其它协议枚举兼容"
+          },
+          "age_at_photo": {
+            "type": "object",
+            "description": "字段名与 photo.v1 同构",
+            "required": ["years", "months", "days", "total_days", "label"],
+            "properties": {
+              "years": { "type": "integer", "minimum": 0 },
+              "months": { "type": "integer", "minimum": 0 },
+              "days": { "type": "integer", "minimum": 0 },
+              "total_days": { "type": "integer", "minimum": 0 },
+              "label": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "scene": {
+      "type": "string",
+      "description": "场景简述；可来自 ASR/人工，未分析则为空字符串"
+    },
+    "location": {
+      "type": "string",
+      "description": "可读地名；有坐标时由逆地理得出"
+    },
+    "location_coords": {
+      "type": "string",
+      "description": "GPS 原始坐标 '纬度,经度'；无则为空字符串"
+    },
+    "location_admin": {
+      "type": "object",
+      "properties": {
+        "province": { "type": "string" },
+        "city": { "type": "string" },
+        "district": { "type": "string" },
+        "formatted_address": { "type": "string" }
+      },
+      "required": ["province", "city", "district", "formatted_address"],
+      "additionalProperties": false
+    },
+    "objects": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "emotion": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "quality": {
+      "type": "object",
+      "description": "音频质量；未分析时可均为 false",
+      "required": ["silent", "speech_detected"],
+      "properties": {
+        "silent": {
+          "type": "boolean",
+          "description": "是否近似静音"
+        },
+        "speech_detected": {
+          "type": "boolean",
+          "description": "是否检出人声/说话"
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": ["path", "duration_s"],
+      "properties": {
+        "path": { "type": "string" },
+        "duration_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "时长（秒）"
+        },
+        "sample_rate_hz": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "采样率；未知可省略或 null"
+        },
+        "channels": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "声道数；未知可省略或 null"
+        },
+        "container": {
+          "type": "string",
+          "description": "容器/扩展名提示，如 m4a、wav；可为空字符串"
+        }
+      },
+      "additionalProperties": false
+    },
+    "transcript": {
+      "type": "object",
+      "description": "可选；ASR 或人工转写。未做转写时省略整个字段",
+      "properties": {
+        "text": { "type": "string" },
+        "language": {
+          "type": "string",
+          "description": "如 zh、en；未知可为空字符串"
+        },
+        "source": {
+          "type": "string",
+          "description": "来源，如 manual、whisper、omitted"
+        }
+      },
+      "required": ["text", "language", "source"],
+      "additionalProperties": false
+    },
+    "related_ids": {
+      "type": "array",
+      "description": "与其它记忆条目的关联（如同一时刻的照片/视频）",
+      "items": {
+        "type": "object",
+        "required": ["id", "media_type", "relation"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "对方记忆 id（photo_id / video_id / audio_id）"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": ["photo", "video", "audio"]
+          },
+          "relation": {
+            "type": "string",
+            "description": "关系类型，如 same_moment、derived、live_photo"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "manual_edit": {
+      "type": "boolean",
+      "description": "兼容字段：任一 manual_* 为 true 时可同步为 true"
+    },
+    "manual_location": {
+      "type": "boolean",
+      "description": "手改地址；regeocode / 地址归一跳过"
+    },
+    "manual_people": {
+      "type": "boolean",
+      "description": "手改人物；说话人 backfill 跳过"
+    },
+    "manual_vision": {
+      "type": "boolean",
+      "description": "手改场景/物体/tags 等语义字段；自动语义 backfill 跳过（命名与 photo/video 同构）"
+    },
+    "manual_transcript": {
+      "type": "boolean",
+      "description": "手改转写；ASR backfill 跳过"
+    },
+    "weather": {
+      "type": "object",
+      "description": "录制日当地天气；无时间或 GPS 时可省略（结构同 photo.v1）",
+      "properties": {
+        "date": { "type": "string" },
+        "code": { "type": "integer" },
+        "condition": { "type": "string" },
+        "temp_max_c": { "type": ["number", "null"] },
+        "temp_min_c": { "type": ["number", "null"] },
+        "temp_mean_c": { "type": ["number", "null"] },
+        "precipitation_mm": { "type": ["number", "null"] },
+        "source": { "type": "string" },
+        "timezone": { "type": "string" }
+      },
+      "required": [
+        "date",
+        "code",
+        "condition",
+        "temp_max_c",
+        "temp_min_c",
+        "temp_mean_c",
+        "precipitation_mm",
+        "source",
+        "timezone"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

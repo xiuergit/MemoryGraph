@@ -152,6 +152,13 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="天气" width="148" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span :class="{ 'weather-empty': !row.weather_label }">
+                  {{ row.weather_label || '—' }}
+                </span>
+              </template>
+            </el-table-column>
             <el-table-column prop="photo_count" label="张数" width="72" align="right" />
             <el-table-column label="人物" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
@@ -186,6 +193,9 @@
                 {{ dayLabel(detail.day) }} · {{ detail.photo_count }} 张
                 <span v-if="detail.is_home"> · 家</span>
                 <span v-if="detail.source === 'untimed_loc'"> · 无时间按地点</span>
+              </p>
+              <p v-if="detail.weather_label" class="muted weather-line">
+                {{ detail.weather_label }}
               </p>
               <p v-if="detail.people?.length" class="muted">
                 {{ detail.people.join('、') }}
@@ -223,7 +233,7 @@
             <section class="photo-section">
               <div class="photo-head">
                 <h3>照片 · {{ detail.photos?.length || 0 }}</h3>
-                <span class="muted photo-select-hint">点图多选 · 改 JSON 地址</span>
+                <span class="muted photo-select-hint">点图多选 · 改地址 / 删除</span>
               </div>
 
               <div v-if="photoLocationGroups.length" class="loc-chips">
@@ -258,6 +268,15 @@
                 >
                   批量改地址
                 </el-button>
+                <el-button
+                  type="danger"
+                  size="small"
+                  :disabled="!selectedPhotoIds.length"
+                  :loading="deletingPhotos"
+                  @click="deleteSelectedPhotos"
+                >
+                  删除选中
+                </el-button>
               </div>
 
               <div class="photo-grid">
@@ -283,13 +302,23 @@
                   <div class="photo-meta" :title="photo.location || '无地址'">
                     {{ photo.location || '无地址' }}
                   </div>
-                  <button
-                    type="button"
-                    class="photo-detail-link"
-                    @click.stop="emit('view-detail', photo.photo_id)"
-                  >
-                    详情
-                  </button>
+                  <div class="photo-card-actions">
+                    <button
+                      type="button"
+                      class="photo-detail-link"
+                      @click.stop="emit('view-detail', photo.photo_id)"
+                    >
+                      详情
+                    </button>
+                    <button
+                      type="button"
+                      class="photo-delete-link"
+                      :disabled="deletingPhotos"
+                      @click.stop="deleteOnePhoto(photo.photo_id)"
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -592,6 +621,7 @@ const listTotal = ref(0)
 const selectedPhotoIds = ref([])
 const locationDialogVisible = ref(false)
 const batchSaving = ref(false)
+const deletingPhotos = ref(false)
 const batchLocation = ref('')
 const batchProvince = ref('')
 const batchCity = ref('')
@@ -847,6 +877,94 @@ async function openLocationDialog() {
   batchFormattedAddress.value = ''
   await loadMemoryLocations()
   locationDialogVisible.value = true
+}
+
+async function promptRebuildAfterPhotoDelete() {
+  try {
+    await ElMessageBox.confirm(
+      '照片已移入 data/.trash/。事件是派生数据，是否现在重建事件？',
+      '重建事件',
+      { confirmButtonText: '重建', cancelButtonText: '稍后', type: 'info' },
+    )
+    await syncEvents()
+  } catch {
+    /* 用户取消 */
+  }
+}
+
+async function deletePhotosByIds(ids, { confirmTitle, confirmMsg } = {}) {
+  const photoIds = (ids || []).filter(Boolean)
+  if (!photoIds.length) return false
+
+  try {
+    await ElMessageBox.confirm(
+      confirmMsg ||
+        `确定删除选中的 ${photoIds.length} 张照片？\n\n原图 + memory JSON 会移入 data/.trash/\nSQLite 索引同步清除（无需再 sync）`,
+      confirmTitle || '删除照片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+      },
+    )
+  } catch {
+    return false
+  }
+
+  deletingPhotos.value = true
+  try {
+    const res = await axios.post('/api/delete/batch', { photo_ids: photoIds })
+    const { deleted_count: deletedCount, failed_count: failedCount, failed, deleted } =
+      res.data
+    if (failedCount > 0) {
+      const detailText = (failed || [])
+        .map((item) => `${item.photo_id}: ${item.error}`)
+        .join('\n')
+      ElMessage.warning(`已删除 ${deletedCount} 张，失败 ${failedCount} 张\n${detailText}`)
+    } else {
+      ElMessage.success(`已删除 ${deletedCount} 张`)
+    }
+    if (deletedCount > 0) {
+      const removed = new Set((deleted || []).map((item) => item.photo_id).filter(Boolean))
+      if (detail.value?.photos?.length) {
+        detail.value = {
+          ...detail.value,
+          photos: detail.value.photos.filter((p) => !removed.has(p.photo_id)),
+          photo_count: Math.max(0, (detail.value.photo_count || 0) - removed.size),
+        }
+      }
+      selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => !removed.has(id))
+      await reloadList()
+      await promptRebuildAfterPhotoDelete()
+    }
+    return deletedCount > 0
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || '删除失败')
+    return false
+  } finally {
+    deletingPhotos.value = false
+  }
+}
+
+async function deleteSelectedPhotos() {
+  const ids = [...selectedPhotoIds.value]
+  if (!ids.length) {
+    ElMessage.warning('请先选择照片')
+    return
+  }
+  await deletePhotosByIds(ids, {
+    confirmTitle: '批量删除',
+    confirmMsg: `确定删除选中的 ${ids.length} 张照片？\n\n原图 + memory JSON 会移入 data/.trash/\nSQLite 索引同步清除（无需再 sync）`,
+  })
+}
+
+async function deleteOnePhoto(photoId) {
+  if (!photoId) return
+  await deletePhotosByIds([photoId], {
+    confirmTitle: '删除照片',
+    confirmMsg: `确定删除这张照片？\n\n${photoId}\n\n原图 + memory JSON 会移入 data/.trash/`,
+  })
 }
 
 function onBatchLocationChange(loc) {
@@ -1380,6 +1498,14 @@ onMounted(async () => {
   border-top: 1px solid var(--border);
 }
 
+.weather-empty {
+  color: var(--el-text-color-placeholder);
+}
+
+.weather-line {
+  color: #5b8def;
+}
+
 .home-tag {
   margin-left: 0.35rem;
   vertical-align: middle;
@@ -1559,18 +1685,39 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-.photo-detail-link {
-  padding: 0.15rem 0.3rem 0.3rem;
-  border: none;
-  background: transparent;
-  color: #7eb6e8;
-  font-size: 0.68rem;
-  cursor: pointer;
-  text-align: left;
+.photo-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0 0.2rem 0.25rem;
 }
 
-.photo-detail-link:hover {
+.photo-detail-link,
+.photo-delete-link {
+  padding: 0.15rem 0.1rem;
+  border: none;
+  background: transparent;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.photo-detail-link {
+  color: #7eb6e8;
+}
+
+.photo-delete-link {
+  color: #e88a8a;
+}
+
+.photo-detail-link:hover,
+.photo-delete-link:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.photo-delete-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .links-box {

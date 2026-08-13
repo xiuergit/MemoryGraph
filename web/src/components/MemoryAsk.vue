@@ -53,10 +53,15 @@
         </div>
 
         <section v-if="evidencePhotos.length" class="evidence-block">
-          <h3 class="block-title">照片证据 · {{ evidencePhotos.length }}</h3>
+          <h3 class="block-title">
+            照片证据 · {{ evidenceTotal }}
+            <span v-if="evidenceTotal > evidencePageSize" class="block-sub">
+              （每页 {{ evidencePageSize }} 张）
+            </span>
+          </h3>
           <div class="photo-grid">
             <button
-              v-for="photo in evidencePhotos"
+              v-for="photo in pagedEvidencePhotos"
               :key="photo.photo_id"
               type="button"
               class="photo-card"
@@ -77,6 +82,24 @@
               </div>
             </button>
           </div>
+          <div v-if="evidenceTotal > evidencePageSize" class="evidence-pager">
+            <el-pagination
+              v-model:current-page="evidencePage"
+              :page-size="evidencePageSize"
+              :total="evidenceTotal"
+              layout="total, prev, pager, next"
+              background
+              small
+            />
+          </div>
+        </section>
+
+        <section v-if="companions.length" class="evidence-block">
+          <h3 class="block-title">同框人物 · {{ companions.length }}</h3>
+          <el-table :data="companions" stripe size="small">
+            <el-table-column prop="name" label="人物" min-width="120" />
+            <el-table-column prop="photo_count" label="同框张数" width="100" align="right" />
+          </el-table>
         </section>
 
         <section v-if="rankPlaces.length" class="evidence-block">
@@ -215,23 +238,32 @@ import { ElMessage } from 'element-plus'
 const emit = defineEmits(['view-detail'])
 
 const exampleChips = [
-  '面面在哪个地方呆的时间最长',
-  '面面住过哪些地方',
+  '面面最近去哪了',
+  '最近出去玩了哪些',
   '面面2024年出去玩了哪些',
   '去年春天出门',
-  '最近出去玩了哪些',
-  '面面最近去哪了',
-  '面面最近10张照片',
-  '面面去过动物园几次活动',
+  '面面住过哪些地方',
+  '面面在哪个地方呆的时间最长',
+  '面面骑车的照片',
+  '有没有轮滑',
+  '面面的画作',
+  '面面去动物园是什么时候',
+  '面面哪些人去过动物园',
+  '妈妈和面面的合影',
   '面面和笑笑合影',
-  '轮滑故事',
+  '面面哭',
+  '面面几岁了',
+  '面面最近10张照片',
   '一共多少张照片',
+  '轮滑故事',
 ]
 
 const question = ref('')
 const loading = ref(false)
 const error = ref('')
 const result = ref(null)
+const evidencePage = ref(1)
+const evidencePageSize = 20
 
 const facts = computed(() => result.value?.facts || {})
 
@@ -279,6 +311,11 @@ const visitDays = computed(() => {
   return Array.isArray(days) ? days : []
 })
 
+const companions = computed(() => {
+  const list = facts.value.companions
+  return Array.isArray(list) ? list : []
+})
+
 const peakDays = computed(() => {
   const days = facts.value.peak_days
   return Array.isArray(days) ? days : []
@@ -307,6 +344,20 @@ const evidencePhotos = computed(() => {
     push(p)
   }
   return out
+})
+
+const evidenceTotal = computed(() => {
+  const n = evidencePhotos.value.length
+  const counted = Number(facts.value.photo_count ?? facts.value.total_count)
+  if (!Number.isFinite(counted) || counted <= 0) return n
+  // 声称总数远大于实际返回的缩略图 → 按实际列表分页，避免空页
+  if (n > 0 && counted > n + 2) return n
+  return Math.max(counted, n)
+})
+
+const pagedEvidencePhotos = computed(() => {
+  const start = (evidencePage.value - 1) * evidencePageSize
+  return evidencePhotos.value.slice(start, start + evidencePageSize)
 })
 
 const statsRows = computed(() => {
@@ -347,6 +398,7 @@ const hasEvidence = computed(
     evidencePhotos.value.length > 0 ||
     rankPlaces.value.length > 0 ||
     recentPlaces.value.length > 0 ||
+    companions.value.length > 0 ||
     visitDays.value.length > 0 ||
     peakDays.value.length > 0 ||
     statsRows.value.length > 0 ||
@@ -368,6 +420,7 @@ async function submitAsk() {
   }
   loading.value = true
   error.value = ''
+  evidencePage.value = 1
   try {
     const res = await axios.post('/api/ask', { question: q })
     result.value = res.data
@@ -522,6 +575,19 @@ function formatTime(timestamp) {
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.block-sub {
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-muted, #888);
+}
+
+.evidence-pager {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
 }
 
 .photo-grid {

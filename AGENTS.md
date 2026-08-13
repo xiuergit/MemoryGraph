@@ -1,28 +1,31 @@
 # MemoryGraph — AI 协作说明
 
-> 家庭私有记忆系统 · 当前阶段：Photo → JSON → SQLite 索引 → 事件聚合 → CLI / Web 问答
+> 家庭私有记忆系统 · **当前阶段（阶段 2）**：结构化问答打磨
 
 ## 项目目标
 
 ```
-照片 → AI 识别 → JSON → SQLite 索引 → 事件聚合 → 检索 → CLI / Web 问答
+照片（及未来视频/音频）→ AI / 元数据 → JSON → SQLite 索引 → 事件聚合 → 检索 → CLI / Web / iOS 问答
 ```
 
-**当前闭环**：Mac 批量产出 JSON，同步 SQLite，CLI 问答可用；**MemoryGraph Desk**（FastAPI）+ **Vue Inspector**（`web/`）管理 JSON/地址缓存/问答/事件；CLI 仍可用于批处理与问答。  
-**暂不做**：全库相册式时间轴（交给系统相册）、向量 RAG、视频/音频 pipeline。  
+**当前闭环**：Mac 批量产出 JSON，同步 SQLite；**MemoryGraph Desk** + **Vue Inspector** 管理与问答；**iOS 消费端**（问问 / 谁）连 Desk；CLI 仍可用。  
+**当前焦点（阶段 2）**：修问答——`unknown` fallback、关键词检索意图、复合条件、意图文档与端上证据对齐等（见 `docs/agent-intents.md`）。  
+**协议**：`photo.v1` + `video.v1` + `audio.v1`（分形态；索引用 `media_type`；Live Photo = photo+video + `related_ids`，见 `docs/media-memory.md`）。  
+**暂不做**：iOS 上传 / 采集 App、全库相册式时间轴、向量 RAG；视频/音频 **pipeline 实现**（协议已定，可与问答并行推进）。  
 **远期可选**：筛选结果时间轴（人物/物体/场景检索命中后，按时间分组展示）。
 
 ## 目录结构
 
 ```
 MemoryGraph/
-├── schemas/                 # JSON 协议（photo.v1.json）
-├── apps/ios/                # iPhone 采集 App（待开发）
+├── schemas/                 # JSON 协议（photo / video / audio.v1）
+├── apps/ios/                # iOS 消费端（问问 / 谁；不做上传）
 ├── hub/
 │   ├── shared/              # schema, analyzer, index_db, agent, …
-│   └── mac_server/          # 本地 HTTP，接收 iOS 上传
+│   └── mac_server/          # 上传接收骨架（暂不推进）
 ├── tools/
 │   ├── photo2json/          # Mac 批量处理 + backfill
+│   ├── video2json/          # 视频 → video.v1 JSON（关键帧 + analyze_image）
 │   ├── face_enroll/         # 人脸库注册 / cluster
 │   ├── memory_index/        # SQLite sync / search
 │   ├── memory_events/       # Outing 事件聚合
@@ -57,15 +60,12 @@ python tools/memory_index/main.py sync
 python tools/memory_events/main.py sync
 python tools/memory_ask/main.py "面面最近去哪了"
 
-# 本地 Web API + Vue Inspector
-python tools/memory_desk/main.py --auto-port
+# 本地 Web API + Vue Inspector（iOS 消费端也连此 Desk）
+python tools/memory_desk/main.py --host 0.0.0.0 --auto-port
 cd web && npm install && npm run dev
-
-# Mac Hub（iOS 上传，可选）
-python hub/mac_server/main.py
 ```
 
-日常分批、backfill、环境变量见 `docs/operations.md`。
+日常分批、backfill、环境变量见 `docs/operations.md`。iOS 打开见 `apps/ios/README.md`。
 
 ## 架构约束（必须遵守）
 
@@ -119,27 +119,37 @@ python tools/photo2json/main.py    # 识别并写入 people 字段
 
 ### 2. JSON Schema 不可变
 
-正式定义：`schemas/photo.v1.json`  
-Python 实现：`hub/shared/schema.py`
+正式定义（按形态分文件，**不**合并为单一 `media.v1`）：
+
+| 协议 | 文件 | 说明 |
+|------|------|------|
+| 照片 | `schemas/photo.v1.json` | 生产中；Python：`hub/shared/schema.py` |
+| 视频 | `schemas/video.v1.json` | 协议已定；pipeline 未实现 |
+| 音频 | `schemas/audio.v1.json` | 协议已定；pipeline 未实现 |
+
+设计约定见 `docs/media-memory.md`、`schemas/README.md`。Live Photo **不**单开协议。
+
+**照片字段（摘要）**
 
 | 字段 | 规则 |
 |------|------|
-| `schema_version` | 当前 `"1.1"`（1.0 仍可读） |
-| `photo_id` | 文件名（不含扩展名） |
+| `schema_version` | 写入多为 `"1.2"`；`1.3` 起可选 `related_ids`（`1.0`–`1.2` 仍可读） |
+| `photo_id` | 相对 `photos/` 路径 stem；与 `video_id` / `audio_id` 全库不冲突 |
 | `timestamp` | 优先 EXIF，无则 `""` |
 | `device_id` | 来源设备，如 `iphone` / `mac` |
 | `location` | 可读地名（逆地理 + 可选同日归一；**纠错真源**为 `.geocode_cache.json`） |
 | `location_coords` | EXIF GPS 原始坐标 `"纬度,经度"`，不覆盖 |
-| `location_admin` | 可选；`province` / `city` / `district` / `formatted_address`（逆地理原文） |
-| `manual_location` | 可选；为 `true` 时 `--regeocode-locations` / 地址归一跳过 |
-| `manual_people` | 可选；为 `true` 时 `--backfill faces` 不覆盖 people |
-| `manual_vision` | 可选；为 `true` 时 `--backfill vision` 不覆盖场景等字段 |
-| `source` | 真实 path / width / height |
+| `location_admin` | 可选；`province` / `city` / `district` / `formatted_address` |
+| `manual_location` / `manual_people` / `manual_vision` | 手改分项；对应 backfill 跳过 |
+| `source` | path / width / height |
 | `people`, `scene`, `objects`, `actions`, `emotion`, `tags`, `quality` | 由 `analyze_image()` 等返回 |
-| `manual_edit` | 兼容汇总：任一分项手改时可同步为 `true`；跳过逻辑以分项为准 |
+| `related_ids` | 可选（1.3+）；Live Photo 等与 video/audio 互链 |
+| `manual_edit` | 兼容汇总：任一分项手改时可同步为 `true` |
 | 识别不到 | 字符串 `""`，数组 `[]`，对象保持结构 |
 
-**禁止**随意增删改正式字段名；大改须新建 `photo.v2.json`。
+**视频 / 音频**：语义字段与照片同构；id 建议后缀 `_v` / `_a`；差异在 `source`（含 `duration_s`）、`quality`（音频为 `silent` / `speech_detected`）、音频可选 `transcript`。索引投影使用 `media_type`。
+
+**禁止**随意增删改正式字段名；大改须新建对应 `*.v2.json`。
 
 ### 3. 模块职责
 
@@ -155,13 +165,14 @@ Python 实现：`hub/shared/schema.py`
 | `hub/shared/photo_delete.py` | 删除照片（移入 `.trash` + 清索引） | 替代 JSON 真源 |
 | `hub/shared/utils.py` | 元数据、格式过滤 | AI 推理 |
 | `hub/shared/geocode.py` | 逆地理、`.geocode_cache.json` CRUD | 改 JSON 语义 |
+| `hub/shared/weather.py` | 日天气（Open-Meteo）、`.weather_cache.json` | 图像推理 / 改 JSON 语义 |
 | `hub/shared/location_cluster.py` | 同日归一、regeocode、`manual_location` 清理 | 替代 geocode 缓存纠错 |
 | `hub/shared/location_canonical.py` | 缓存别名合并（可选） | 日常家附近 POI 拆分 |
 | `tools/location_mapping/` | 地址缓存 CLI | 直接改 memory JSON |
 | `tools/memory_desk/app.py` | Desk REST API | 重复 analyze_image |
 | `web/` | Vue Inspector UI | 直连 SQLite / 绕过 JSON |
-| `hub/mac_server/server.py` | 接收上传、落盘 | 重复实现分析逻辑 |
-| `apps/ios/` | 选图、EXIF、上传 | 跑视觉大模型 |
+| `hub/mac_server/server.py` | 上传接收骨架（暂不推进） | 重复实现分析逻辑 |
+| `apps/ios/` | 消费端：问答 / 按人看图（连 Desk） | 上传、跑视觉大模型、改 JSON |
 
 ### 4. 错误处理
 
@@ -171,14 +182,15 @@ Python 实现：`hub/shared/schema.py`
 ## 改代码前必读
 
 1. 改 AI 逻辑 → `hub/shared/analyzer.py`、`vision.py`、`face.py`、`outfit.py`
-2. 改输出格式 → `schemas/`、`hub/shared/schema.py`
+2. 改输出格式 → `schemas/`（photo/video/audio）、`hub/shared/schema.py`；多媒体约定 → `docs/media-memory.md`
 3. 改 EXIF/时间/地点 → `hub/shared/utils.py`、`geocode.py`、`location_cluster.py`、`location_canonical.py`
+3b. 改天气 → `hub/shared/weather.py`、`photo2json --backfill weather`
 4. 改地址缓存 / 批量 regeocode → `tools/location_mapping/`、`photo2json --regeocode-locations`
-5. 改索引/问答 → `hub/shared/index_db.py`、`query.py`、`agent.py`
+5. 改索引/问答 → `hub/shared/index_db.py`、`query.py`、`agent.py`（**阶段 2 主战场**；意图说明见 `docs/agent-intents.md`）
 5b. 改事件聚合 / 故事 / 意义落盘 → `hub/shared/events.py`、`annotations.py`、`tools/memory_events/`、Vue「事件」Tab
 6. 改路径 → `hub/shared/config.py`
 7. 改 Desk / Vue → `tools/memory_desk/app.py`、`web/src/`
-8. 改 iOS 上传协议 → `hub/mac_server/server.py`、`docs/architecture.md`
+8. 改 iOS 消费端 → `apps/ios/`（连 Desk；**不做**上传协议）
 
 ## 当前状态
 
@@ -190,16 +202,24 @@ Python 实现：`hub/shared/schema.py`
 - ✅ `tools/memory_events` + Vue「事件」Tab（outing / 家 / 无时间按地点；`memory_annotations.json` 真源 + overlay 重挂、stories；手改地名同日同名合并）
 - ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、去重、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
 - ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`（去重候选报告）
-- ⏸ Mac Hub：`hub/mac_server`（`POST /import`）；iOS App 待开发
-- 🔜 详情页改 `people[]`、筛选结果时间轴视图、向量 RAG、video/audio pipeline
+- ✅ `apps/ios/`：消费端壳（问问 + 谁；语音提问 / 朗读）；**不做**上传
+- 🚧 **阶段 2：结构化问答打磨**（见 `docs/Project Charter.md` / `docs/agent-intents.md`）
+  - ✅ P0：`unknown` fallback、`keyword_search`
+  - 🔜 P1：复合条件、单人默认人物
+- ❌ iOS 上传 / `mac_server` 日常推进：暂不需要（继续「导出到 Mac」）
+- ✅ 多媒体协议：`video.v1` / `audio.v1` + `docs/media-memory.md`（pipeline 未做）
+- 🔜 详情页改 `people[]`、筛选结果时间轴、向量 RAG
+- 🔜 视频 / 音频 JSON pipeline（可与问答并行；协议已定）
 
 ## 未来扩展（未做或仅规划）
 
+- **阶段 2 内**：✅ `unknown` / `keyword_search`；🔜 复合条件、单人默认人物
 - 详情页单条改人物（列表批量标人物已有）
 - **筛选结果时间轴**（见下；**不是**全库照片墙式相册时间轴）
 - overlay / stories 日常录入与展示增强
-- 视频 / 音频 JSON pipeline
+- 视频 / 音频入库与索引（`media_type`；见 `docs/media-memory.md`）
 - 向量语义检索（若需要再上）
+- iOS 出门事件 Tab / 画作集 / Bonjour（消费端增强，非上传）
 
 ### 筛选结果时间轴（远期，非相册）
 

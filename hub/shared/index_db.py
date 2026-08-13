@@ -12,6 +12,7 @@ from typing import Any
 
 from hub.shared.schema import location_admin_from_dict
 from hub.shared.family import person_search_tokens
+from hub.shared.weather import weather_from_dict
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,18 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "photos", "manual_location", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "photos", "manual_people", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(conn, "photos", "manual_vision", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "photos", "weather_date", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "weather_code", "INTEGER")
+    _ensure_column(conn, "photos", "weather_condition", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "photos", "weather_temp_mean_c", "REAL")
+    _ensure_column(conn, "photos", "weather_temp_min_c", "REAL")
+    _ensure_column(conn, "photos", "weather_temp_max_c", "REAL")
+    _ensure_column(conn, "photos", "weather_precipitation_mm", "REAL")
+    # photo | video | audio；主键列仍叫 photo_id，存各协议的 *_id
+    _ensure_column(conn, "photos", "media_type", "TEXT NOT NULL DEFAULT 'photo'")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_media_type ON photos(media_type)"
+    )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_photos_location_province ON photos(location_province)"
     )
@@ -163,6 +176,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_photos_manual_vision ON photos(manual_vision)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_weather_condition ON photos(weather_condition)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_photos_weather_date ON photos(weather_date)"
+    )
     conn.commit()
 
 
@@ -172,13 +191,37 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
-def _photo_row(data: dict[str, Any], json_path: Path, json_mtime: float) -> tuple:
+def memory_identity(data: dict[str, Any]) -> tuple[str, str]:
+    """从 JSON 得到 (索引主键, media_type)。主键列名仍为 photo_id。"""
+    video_id = str(data.get("video_id") or "").strip()
+    if video_id:
+        return video_id, "video"
+    audio_id = str(data.get("audio_id") or "").strip()
+    if audio_id:
+        return audio_id, "audio"
+    photo_id = str(data.get("photo_id") or "").strip()
+    if photo_id:
+        return photo_id, "photo"
+    raise KeyError("memory JSON 缺少 photo_id / video_id / audio_id")
+
+
+def _photo_row(
+    data: dict[str, Any],
+    json_path: Path,
+    json_mtime: float,
+    *,
+    memory_id: str,
+    media_type: str,
+) -> tuple:
     quality = data.get("quality") or {}
     source = data.get("source") or {}
     location_coords = str(data.get("location_coords", "")).strip()
     admin = location_admin_from_dict(data.get("location_admin"))
+    weather = weather_from_dict(data.get("weather") if isinstance(data.get("weather"), dict) else None)
+    face_detected = 1 if quality.get("face_detected") else 0
     return (
-        data["photo_id"],
+        memory_id,
+        media_type,
         data.get("timestamp", ""),
         data.get("device_id", ""),
         data.get("scene", ""),
@@ -188,11 +231,18 @@ def _photo_row(data: dict[str, Any], json_path: Path, json_mtime: float) -> tupl
         admin["city"],
         admin["district"],
         source.get("path", ""),
-        1 if quality.get("face_detected") else 0,
+        face_detected,
         1 if data.get("manual_edit") else 0,
         1 if data.get("manual_location") else 0,
         1 if data.get("manual_people") else 0,
         1 if data.get("manual_vision") else 0,
+        (weather or {}).get("date", "") if weather else "",
+        weather["code"] if weather else None,
+        (weather or {}).get("condition", "") if weather else "",
+        weather["temp_mean_c"] if weather else None,
+        weather["temp_min_c"] if weather else None,
+        weather["temp_max_c"] if weather else None,
+        weather["precipitation_mm"] if weather else None,
         str(json_path.resolve()),
         json_mtime,
         datetime.now().isoformat(timespec="seconds"),
@@ -231,23 +281,30 @@ def _term_rows(photo_id: str, data: dict[str, Any]) -> list[tuple]:
     scene = str(data.get("scene", "")).strip()
     if scene:
         rows.append((photo_id, scene, "scene"))
+    weather = weather_from_dict(data.get("weather") if isinstance(data.get("weather"), dict) else None)
+    if weather and weather.get("condition"):
+        rows.append((photo_id, weather["condition"], "weather"))
     return rows
 
 
 def _upsert_photo(conn: sqlite3.Connection, data: dict[str, Any], json_path: Path) -> None:
     json_mtime = json_path.stat().st_mtime
-    photo_id = data["photo_id"]
+    photo_id, media_type = memory_identity(data)
 
     conn.execute(
         """
         INSERT INTO photos (
-            photo_id, timestamp, device_id, scene, location, location_coords,
+            photo_id, media_type, timestamp, device_id, scene, location, location_coords,
             location_province, location_city, location_district,
             source_path, face_detected, manual_edit, manual_location,
             manual_people, manual_vision,
+            weather_date, weather_code, weather_condition,
+            weather_temp_mean_c, weather_temp_min_c, weather_temp_max_c,
+            weather_precipitation_mm,
             json_path, json_mtime, indexed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(photo_id) DO UPDATE SET
+            media_type = excluded.media_type,
             timestamp = excluded.timestamp,
             device_id = excluded.device_id,
             scene = excluded.scene,
@@ -262,11 +319,24 @@ def _upsert_photo(conn: sqlite3.Connection, data: dict[str, Any], json_path: Pat
             manual_location = excluded.manual_location,
             manual_people = excluded.manual_people,
             manual_vision = excluded.manual_vision,
+            weather_date = excluded.weather_date,
+            weather_code = excluded.weather_code,
+            weather_condition = excluded.weather_condition,
+            weather_temp_mean_c = excluded.weather_temp_mean_c,
+            weather_temp_min_c = excluded.weather_temp_min_c,
+            weather_temp_max_c = excluded.weather_temp_max_c,
+            weather_precipitation_mm = excluded.weather_precipitation_mm,
             json_path = excluded.json_path,
             json_mtime = excluded.json_mtime,
             indexed_at = excluded.indexed_at
         """,
-        _photo_row(data, json_path, json_mtime),
+        _photo_row(
+            data,
+            json_path,
+            json_mtime,
+            memory_id=photo_id,
+            media_type=media_type,
+        ),
     )
     conn.execute("DELETE FROM photo_people WHERE photo_id = ?", (photo_id,))
     conn.execute("DELETE FROM photo_terms WHERE photo_id = ?", (photo_id,))
@@ -313,7 +383,7 @@ def sync_memory_dir(
         try:
             json_mtime = json_path.stat().st_mtime
             data = _load_json(json_path)
-            photo_id = data.get("photo_id") or json_path.stem
+            photo_id, _media_type = memory_identity(data)
             seen_ids.add(photo_id)
 
             if not force and photo_id in existing and existing[photo_id] == json_mtime:
@@ -369,8 +439,19 @@ def search_photos(
     person: str = "",
     query: str = "",
     limit: int = 20,
+    term_types: tuple[str, ...] | None = None,
+    match_scene: bool = True,
+    match_location: bool = True,
 ) -> list[dict[str, Any]]:
-    """按人物名或关键词搜索照片，按 timestamp 倒序。"""
+    """按人物名或关键词搜索照片，按 timestamp 倒序。
+
+    term_types: 若指定，仅匹配 photo_terms 中这些类型（如 ('actions',)）。
+    match_scene / match_location: 是否用 scene、location 做 LIKE（动作检索时常关掉）。
+    limit<=0：取全量（上限 5000），供问答证据图用。
+    """
+    if limit <= 0:
+        limit = 5000
+
     clauses = ["1=1"]
     params: list[Any] = []
 
@@ -394,20 +475,37 @@ def search_photos(
         )
 
     if query:
-        clauses.append(
-            """
-            (
-                p.scene LIKE ?
-                OR p.location LIKE ?
-                OR EXISTS (
-                    SELECT 1 FROM photo_terms t
-                    WHERE t.photo_id = p.photo_id AND t.term LIKE ?
-                )
+        pattern = f"%{query}%"
+        or_parts: list[str] = []
+        if match_scene:
+            or_parts.append("p.scene LIKE ?")
+            params.append(pattern)
+        if match_location:
+            or_parts.append("p.location LIKE ?")
+            params.append(pattern)
+            or_parts.append("p.location_province LIKE ?")
+            params.append(pattern)
+            or_parts.append("p.location_city LIKE ?")
+            params.append(pattern)
+            or_parts.append("p.location_district LIKE ?")
+            params.append(pattern)
+
+        term_sql = "t.photo_id = p.photo_id AND t.term LIKE ?"
+        term_params: list[Any] = [pattern]
+        if term_types:
+            placeholders = ",".join("?" for _ in term_types)
+            term_sql += f" AND t.term_type IN ({placeholders})"
+            term_params.extend(term_types)
+        or_parts.append(
+            f"""
+            EXISTS (
+                SELECT 1 FROM photo_terms t
+                WHERE {term_sql}
             )
             """
         )
-        pattern = f"%{query}%"
-        params.extend([pattern, pattern, pattern])
+        params.extend(term_params)
+        clauses.append(f"({' OR '.join(or_parts)})")
 
     sql = f"""
         SELECT
@@ -432,6 +530,8 @@ def search_photos(
 
 
 def list_timeline(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str, Any]]:
+    if limit <= 0:
+        limit = 5000
     rows = conn.execute(
         """
         SELECT

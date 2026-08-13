@@ -21,14 +21,29 @@ from jsonschema import validate as jsonschema_validate, ValidationError
 from PIL import Image, ImageOps
 
 from hub.shared.agent import ask as memory_ask
-from hub.shared.config import DATA_DIR, FACES_DIR, MEMORY_DB, MEMORY_DIR, PHOTOS_DIR, PROJECT_ROOT
+from hub.shared.config import (
+    DATA_DIR,
+    FACES_DIR,
+    MEMORY_DB,
+    MEMORY_DIR,
+    PHOTOS_DIR,
+    PROJECT_ROOT,
+    SUPPORTED_VIDEO_EXTENSIONS,
+    VIDEO_FRAME_CACHE_DIR,
+)
 from hub.shared.backfill import backfill_folder
 from hub.shared.face import build_face_index, load_face_index, save_face_index
-from hub.shared.index_db import sync_memory_dir
+from hub.shared.index_db import (
+    connect,
+    init_db,
+    list_timeline,
+    memory_identity,
+    search_photos,
+    sync_memory_dir,
+)
 from hub.shared.location_cluster import regeocode_locations_from_memory
 from hub.shared.family import person_search_tokens, resolve_person
 from hub.shared.file_search import memory_json_for_photo, search_files
-from hub.shared.index_db import connect, init_db, search_photos, list_timeline
 from hub.shared.memory_edit import (
     MemoryEditError,
     batch_apply_location,
@@ -77,6 +92,7 @@ from hub.shared.face_registry_manage import (
 app = FastAPI(title="MemoryGraph Desk", version="0.1.0")
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heif", ".heic"}
+_VIDEO_EXTS = set(SUPPORTED_VIDEO_EXTENSIONS)
 _THUMB_DIR = DATA_DIR / "cache" / "thumbs"
 
 
@@ -188,6 +204,17 @@ def api_search_person(
     }
 
 
+def _poster_for_video(video_path: Path) -> Path:
+    """视频预览：优先 cache/video_frames/{video_id}.jpg，否则现场抽帧。"""
+    from hub.shared.video_meta import extract_keyframe, get_video_id
+
+    video_id = get_video_id(video_path, root=PHOTOS_DIR)
+    cached = VIDEO_FRAME_CACHE_DIR / f"{video_id}.jpg"
+    if cached.is_file():
+        return cached
+    return extract_keyframe(video_path, video_id=video_id)
+
+
 @app.get("/api/preview")
 def api_preview(
     path: str = Query(...),
@@ -196,8 +223,16 @@ def api_preview(
     target = _resolve_under_data(path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail="文件不存在")
-    if target.suffix.lower() not in _IMAGE_EXTS:
-        raise HTTPException(status_code=415, detail="仅支持图片预览")
+    suffix = target.suffix.lower()
+    if suffix in _VIDEO_EXTS:
+        try:
+            target = _poster_for_video(target)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=415, detail=f"视频预览失败: {exc}"
+            ) from exc
+    elif suffix not in _IMAGE_EXTS:
+        raise HTTPException(status_code=415, detail="仅支持图片或视频预览")
     if size <= 0:
         return FileResponse(target)
 
@@ -258,6 +293,45 @@ def api_ask(body: AskRequest) -> dict[str, Any]:
         "answer": result.answer,
         "used_llm": result.used_llm,
         "facts": facts,
+    }
+
+
+@app.get("/api/memory/artwork")
+def api_memory_artwork(
+    person: str = Query(..., min_length=1, description="中文名或 person_id，如 面面"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(40, ge=1, le=200),
+    works_only: bool = Query(
+        True,
+        description="True=偏画作特写；False=含正在画画等过程照",
+    ),
+) -> dict[str, Any]:
+    """某人相关画作集：同事件关联，不要求画作照片上标人物。"""
+    from hub.shared.query import get_person_artwork
+
+    conn = connect(MEMORY_DB)
+    init_db(conn)
+    # 多取一点再分页：count 已在结果里；这里直接按 limit 取前 N
+    limit = page * page_size
+    result = get_person_artwork(
+        conn,
+        person=person.strip(),
+        limit=limit,
+        works_only=works_only,
+    )
+    conn.close()
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail=f"未找到成员：{person}")
+    photos = result.get("photos") or []
+    start = (page - 1) * page_size
+    page_items = photos[start : start + page_size]
+    return {
+        "person": result["person"],
+        "works_only": works_only,
+        "total": int(result.get("photo_count") or 0),
+        "page": page,
+        "page_size": page_size,
+        "items": page_items,
     }
 
 
@@ -727,6 +801,20 @@ def api_memory_locations() -> dict[str, Any]:
     }
 
 
+def _folder_from_source_path(source: str) -> str:
+    """data/photos/ 下的相对目录，如 2026/5-8；找不到则空串。"""
+    if not source:
+        return ""
+    norm = source.replace("\\", "/")
+    if "/photos/" not in norm:
+        return ""
+    rel = norm.split("/photos/", 1)[1]
+    parent = str(Path(rel).parent)
+    if not parent or parent == ".":
+        return ""
+    return parent
+
+
 @app.get("/api/memory/years")
 def api_memory_years() -> dict[str, Any]:
     """从 timestamp 提取有数据的年份（倒序）。"""
@@ -746,6 +834,36 @@ def api_memory_years() -> dict[str, Any]:
     return {"years": years}
 
 
+@app.get("/api/memory/folders")
+def api_memory_folders() -> dict[str, Any]:
+    """列出 photos/ 下出现过的相对文件夹（含中间层，如 2026、2026/5-8）。"""
+    conn = connect(MEMORY_DB)
+    init_db(conn)
+    rows = conn.execute(
+        """
+        SELECT source_path FROM photos
+        WHERE source_path IS NOT NULL AND source_path != ''
+        """
+    ).fetchall()
+    conn.close()
+
+    folders: set[str] = set()
+    for row in rows:
+        folder = _folder_from_source_path(str(row["source_path"] or ""))
+        if not folder:
+            continue
+        parts = Path(folder).parts
+        for i in range(1, len(parts) + 1):
+            folders.add(str(Path(*parts[:i])))
+
+    ordered = sorted(
+        folders,
+        key=lambda f: (f.split("/")[0], f.count("/"), f),
+        reverse=True,
+    )
+    return {"folders": ordered, "total": len(ordered)}
+
+
 @app.get("/api/memory/list")
 def api_memory_list(
     page: int = Query(1, ge=1),
@@ -755,10 +873,19 @@ def api_memory_list(
     date_from: str = Query("", description="起始日期 YYYY-MM-DD"),
     date_to: str = Query("", description="结束日期 YYYY-MM-DD"),
     year: str = Query("", description="按年筛选，如 2024"),
+    folder: str = Query("", description="按 photos/ 下相对文件夹筛选，如 2026/5-8"),
     sort: str = Query("desc", description="排序: desc|asc|folder"),
     person: str = Query("", description="按人物筛选（中文名或 person_id）；__EMPTY__ 表示无人物"),
     face: str = Query("", description="人脸筛选: yes|no|needs_faces"),
+    people_count: str = Query(
+        "",
+        description="人物数量筛选：1=仅单人照（排除合照）",
+    ),
     timestamp: str = Query("", description="时间筛选: empty=无时间"),
+    media_type: str = Query(
+        "",
+        description="媒体类型: photo|video|audio；空=全部",
+    ),
     context_neighbors: bool = Query(
         False,
         description="与 timestamp=empty 联用：按文件夹顺序插入前后有时间的邻居，便于对照",
@@ -771,6 +898,11 @@ def api_memory_list(
     clauses = ["1=1"]
     params: list[Any] = []
 
+    media_type_filter = media_type.strip().lower()
+    if media_type_filter in ("photo", "video", "audio"):
+        clauses.append("IFNULL(p.media_type, 'photo') = ?")
+        params.append(media_type_filter)
+
     if location:
         if location == "__EMPTY__":
             clauses.append("(p.location = '' OR p.location IS NULL)")
@@ -782,6 +914,24 @@ def api_memory_list(
     if year and year.isdigit() and len(year) == 4:
         clauses.append("substr(p.timestamp, 1, 4) = ?")
         params.append(year)
+
+    folder = folder.strip().strip("/").replace("\\", "/")
+    if folder:
+        # 匹配 …/photos/{folder}/… 或恰好落在该目录（容错）
+        clauses.append(
+            """
+            (
+                replace(p.source_path, '\\', '/') LIKE ?
+                OR replace(p.source_path, '\\', '/') LIKE ?
+            )
+            """
+        )
+        params.extend(
+            [
+                f"%/photos/{folder}/%",
+                f"%/photos/{folder}",
+            ]
+        )
 
     if date_from:
         clauses.append("p.timestamp >= ?")
@@ -816,6 +966,23 @@ def api_memory_list(
                 WHERE pp_filter.photo_id = p.photo_id
                   AND ({' OR '.join(token_clauses)})
             )
+            """
+        )
+
+    people_count = people_count.strip()
+    if people_count == "1":
+        # 按不同 person_id 计数；同一人多行不会误伤，多人合照必排除
+        clauses.append(
+            """
+            (
+                SELECT COUNT(DISTINCT CASE
+                    WHEN IFNULL(ppc.person_id, '') != '' THEN ppc.person_id
+                    ELSE ppc.person_name
+                END)
+                FROM photo_people ppc
+                WHERE ppc.photo_id = p.photo_id
+                  AND (IFNULL(ppc.person_id, '') != '' OR IFNULL(ppc.person_name, '') != '')
+            ) = 1
             """
         )
 
@@ -863,15 +1030,12 @@ def api_memory_list(
         photo_path = Path(row_dict.get("source_path", "") or "")
         has_file = photo_path.is_file()
         source = str(row_dict.get("source_path") or "")
-        folder = ""
-        if source:
-            norm = source.replace("\\", "/")
-            if "/photos/" in norm:
-                folder = str(Path(norm.split("/photos/", 1)[1]).parent)
-            else:
-                folder = str(Path(source).parent.name)
+        item_folder = _folder_from_source_path(source)
+        if not item_folder and source:
+            item_folder = str(Path(source).parent.name)
         return {
             "photo_id": row_dict["photo_id"],
+            "media_type": row_dict.get("media_type") or "photo",
             "timestamp": row_dict["timestamp"] or "",
             "scene": row_dict["scene"],
             "location": row_dict["location"],
@@ -880,15 +1044,20 @@ def api_memory_list(
             "location_district": row_dict["location_district"] or "",
             "people": row_dict["people"] or "",
             "face_detected": bool(row_dict["face_detected"]),
+            "weather_condition": row_dict.get("weather_condition") or "",
+            "weather_temp_mean_c": row_dict.get("weather_temp_mean_c"),
+            "weather_temp_min_c": row_dict.get("weather_temp_min_c"),
+            "weather_temp_max_c": row_dict.get("weather_temp_max_c"),
             "has_file": has_file,
             "source_path": str(photo_path) if has_file else "",
-            "folder": folder,
+            "folder": item_folder,
             "is_context": is_context,
         }
 
     select_sql = f"""
         SELECT
             p.photo_id,
+            IFNULL(p.media_type, 'photo') AS media_type,
             p.timestamp,
             p.scene,
             p.location,
@@ -897,6 +1066,10 @@ def api_memory_list(
             p.location_district,
             p.source_path,
             p.face_detected,
+            p.weather_condition,
+            p.weather_temp_mean_c,
+            p.weather_temp_min_c,
+            p.weather_temp_max_c,
             GROUP_CONCAT(DISTINCT pp.person_name) AS people
         FROM photos p
         LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
@@ -1195,12 +1368,18 @@ def api_memory_detail(photo_id: str = Query(..., min_length=1)) -> dict[str, Any
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=500, detail=f"JSON 解析失败: {exc}") from exc
 
+    try:
+        _mid, media_type = memory_identity(data)
+    except KeyError:
+        media_type = "photo"
+
     source = data.get("source") or {}
     photo_path = Path(source.get("path", ""))
     has_file = photo_path.is_file()
 
     return {
         "photo_id": photo_id,
+        "media_type": media_type,
         "json_path": str(json_path),
         "has_photo_file": has_file,
         "source_path": str(photo_path) if has_file else "",
