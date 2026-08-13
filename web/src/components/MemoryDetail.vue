@@ -4,8 +4,8 @@
       <div class="detail-header">
         <h2>
           {{ detail.photo_id }}
-          <el-tag v-if="isVideo" type="warning" size="small" effect="dark" class="media-tag">视频</el-tag>
-          <el-tag v-else-if="isAudio" type="info" size="small" effect="dark" class="media-tag">音频</el-tag>
+          <el-tag v-if="isVideo" type="warning" size="small" effect="light" class="media-tag">视频</el-tag>
+          <el-tag v-else-if="isAudio" type="info" size="small" effect="light" class="media-tag">音频</el-tag>
         </h2>
         <div class="header-actions">
           <el-button type="primary" :loading="saving" @click="saveEdit">保存修改</el-button>
@@ -444,7 +444,7 @@ onMounted(() => {
   max-height: 420px;
   object-fit: contain;
   border-radius: 8px;
-  background: #010409;
+  background: var(--thumb-bg);
   border: 1px solid var(--border);
 }
 

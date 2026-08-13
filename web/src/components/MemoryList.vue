@@ -312,7 +312,7 @@
                 <el-tag
                   :type="row.face_detected ? 'success' : 'info'"
                   size="small"
-                  effect="dark"
+                  effect="light"
                 >
                   {{ row.face_detected ? '有脸' : '无人脸' }}
                 </el-tag>
@@ -1140,7 +1140,7 @@ onBeforeUnmount(() => {
   height: max-content;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #0d1117;
+  background: var(--panel);
   overflow: hidden;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -1169,7 +1169,7 @@ onBeforeUnmount(() => {
   aspect-ratio: 1 / 1;
   height: auto;
   flex: none;
-  background: #010409;
+  background: var(--thumb-bg);
   overflow: hidden;
 }
 
@@ -1223,8 +1223,8 @@ onBeforeUnmount(() => {
   padding: 0;
   border-radius: 6px;
   background: #fff;
-  border: 1px solid #222;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(26, 35, 50, 0.18);
   cursor: pointer;
   pointer-events: auto;
 }
@@ -1245,8 +1245,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   display: block;
   padding: 0.3rem 0.35rem 0.35rem;
-  background: #21262d;
-  border-top: 1px solid #30363d;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
 }
 
 .card-info-top {
@@ -1258,7 +1258,7 @@ onBeforeUnmount(() => {
 }
 
 .card-time {
-  color: #fff;
+  color: var(--text-strong);
   font-size: 0.62rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1279,7 +1279,7 @@ onBeforeUnmount(() => {
 }
 
 .card-meta {
-  color: #e6edf3;
+  color: var(--text);
   font-size: 0.62rem;
   font-weight: 500;
   line-height: 1.3;
@@ -1289,15 +1289,15 @@ onBeforeUnmount(() => {
 }
 
 .card-meta.folder {
-  color: #8b9cb3;
+  color: var(--muted);
 }
 
 .card-meta.weather:not(.empty) {
-  color: #9ecbff;
+  color: var(--accent);
 }
 
 .card-meta.empty {
-  color: #8b949e;
+  color: var(--muted);
   font-weight: 400;
 }
 

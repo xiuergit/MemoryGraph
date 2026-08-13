@@ -107,7 +107,7 @@ function getValueClass(value) {
 }
 
 .node-key {
-  color: #c678dd;
+  color: #7c3aed;
   cursor: pointer;
   user-select: none;
 }
@@ -141,15 +141,15 @@ function getValueClass(value) {
 }
 
 .string-value {
-  color: #98c379;
+  color: #22863a;
 }
 
 .number-value {
-  color: #d19a66;
+  color: #b45309;
 }
 
 .boolean-value {
-  color: #56b6c2;
+  color: #0891b2;
 }
 
 .null-value {

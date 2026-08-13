@@ -619,7 +619,7 @@ function formatTime(timestamp) {
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
-  background: #121820;
+  background: var(--thumb-bg);
 }
 
 .photo-placeholder {

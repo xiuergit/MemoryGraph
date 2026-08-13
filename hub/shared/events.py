@@ -808,7 +808,7 @@ def list_events(
         (*params, limit, offset),
     ).fetchall()
     items = [_event_row_to_dict(r) for r in rows]
-    _attach_events_weather(conn, items)
+    _attach_events_weather(conn, items, allow_fetch=False)
     return items
 
 
@@ -994,11 +994,72 @@ def _event_day_coords(
     return out
 
 
-def _attach_events_weather(conn: sqlite3.Connection, events: list[dict[str, Any]]) -> None:
-    """事件天气：按「日历日」用白天众数（非拍摄小时），同日列表一致。"""
+def _attach_photo_weather_fallback(
+    conn: sqlite3.Connection, events: list[dict[str, Any]]
+) -> None:
+    """Open-Meteo 缓存没有时，用照片上已写入的 weather 凑一列，避免列表再打网。"""
+    missing = [
+        e
+        for e in events
+        if e.get("event_id") and not str((e.get("weather") or {}).get("condition") or "").strip()
+    ]
+    if not missing:
+        return
+    ids = [e["event_id"] for e in missing]
+    placeholders = ",".join("?" for _ in ids)
+    rows = conn.execute(
+        f"""
+        SELECT
+            ep.event_id,
+            p.weather_condition,
+            p.weather_temp_min_c,
+            p.weather_temp_max_c,
+            p.weather_temp_mean_c
+        FROM event_photos ep
+        JOIN photos p ON p.photo_id = ep.photo_id
+        WHERE ep.event_id IN ({placeholders})
+          AND p.weather_condition IS NOT NULL
+          AND TRIM(p.weather_condition) != ''
+        """,
+        ids,
+    ).fetchall()
+    by_event: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        by_event.setdefault(str(row["event_id"]), []).append(row)
+
+    for event in missing:
+        samples = by_event.get(event["event_id"]) or []
+        if not samples:
+            continue
+        conditions = [str(r["weather_condition"]).strip() for r in samples]
+        condition = Counter(conditions).most_common(1)[0][0]
+        sample = next(r for r in samples if str(r["weather_condition"]).strip() == condition)
+        payload = _weather_payload_from_weather(
+            {
+                "condition": condition,
+                "temp_min_c": sample["weather_temp_min_c"],
+                "temp_max_c": sample["weather_temp_max_c"],
+                "temp_mean_c": sample["weather_temp_mean_c"],
+            }
+        )
+        event["weather"] = payload
+        event["weather_label"] = payload["label"]
+
+
+def _attach_events_weather(
+    conn: sqlite3.Connection,
+    events: list[dict[str, Any]],
+    *,
+    allow_fetch: bool = False,
+) -> None:
+    """事件天气：优先读缓存；列表默认不打 Open-Meteo，避免事件页卡住。"""
     if not events:
         return
-    from hub.shared.weather import resolve_daytime_weather
+    from hub.shared.weather import (
+        load_weather_cache,
+        resolve_daytime_weather,
+        save_weather_cache,
+    )
 
     ids = [e["event_id"] for e in events if e.get("event_id")]
     if not ids:
@@ -1015,11 +1076,22 @@ def _attach_events_weather(conn: sqlite3.Connection, events: list[dict[str, Any]
         if coords:
             day_coords[day] = coords
 
+    cache = load_weather_cache() if allow_fetch else None
     day_weather: dict[str, dict[str, Any]] = {}
-    for day, coords in day_coords.items():
-        weather = resolve_daytime_weather(coords, day, persist_cache=True)
-        if weather:
-            day_weather[day] = _weather_payload_from_weather(dict(weather))
+    try:
+        for day, coords in day_coords.items():
+            weather = resolve_daytime_weather(
+                coords,
+                day,
+                cache=cache,
+                persist_cache=False,
+                allow_fetch=allow_fetch,
+            )
+            if weather:
+                day_weather[day] = _weather_payload_from_weather(dict(weather))
+    finally:
+        if allow_fetch and cache is not None:
+            save_weather_cache(cache)
 
     for event in events:
         day = str(event.get("day") or "").strip()
@@ -1028,6 +1100,8 @@ def _attach_events_weather(conn: sqlite3.Connection, events: list[dict[str, Any]
             continue
         event["weather"] = payload
         event["weather_label"] = payload["label"]
+
+    _attach_photo_weather_fallback(conn, events)
 
 
 def get_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:

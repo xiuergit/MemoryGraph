@@ -597,11 +597,11 @@ onMounted(async () => {
 .cache-table :deep(tr:hover) .cell-text,
 .cache-table :deep(tr:hover) .cell-mono,
 .cache-table :deep(tr:hover) .cell-warn {
-  color: #ffffff !important;
+  color: var(--text-strong) !important;
 }
 
 .cache-table :deep(tr:hover) .cell-warn {
-  color: #ffe0a3 !important;
+  color: #b07820 !important;
 }
 
 .pager {
@@ -611,32 +611,32 @@ onMounted(async () => {
 
 .warn-text,
 .cell-warn {
-  color: #f3c27a;
+  color: #b07820;
 }
 
 .cell-region {
-  color: #b8c9dc;
+  color: var(--accent);
   font-weight: 600;
 }
 
 .cell-text {
-  color: #d8e0ea;
+  color: var(--text);
 }
 
 .cell-strong {
-  color: #ffffff;
+  color: var(--text-strong);
   font-weight: 700;
   font-size: 0.95rem;
 }
 
 .cell-mono {
-  color: #c8d4e3;
+  color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
 }
 
 .location-name {
-  color: #ffffff;
+  color: var(--text-strong);
   font-weight: 700;
   font-size: 1rem;
 }
@@ -658,8 +658,8 @@ onMounted(async () => {
 }
 
 .cache-edit-form :deep(.el-input.is-disabled .el-input__inner) {
-  color: #c5d0de !important;
-  -webkit-text-fill-color: #c5d0de;
+  color: var(--el-text-color-disabled) !important;
+  -webkit-text-fill-color: var(--el-text-color-disabled);
 }
 
 .sample-section {
@@ -716,7 +716,7 @@ onMounted(async () => {
 
 .sample-thumb-wrap {
   aspect-ratio: 1;
-  background: #243044;
+  background: var(--thumb-bg);
   display: flex;
   align-items: center;
   justify-content: center;

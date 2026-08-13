@@ -15,9 +15,13 @@ data/memory/*
 data/.trash/
 data/.geocode_cache.json
 data/.weather_cache.json
+data/.memory_desk_port
 data/memory_annotations.json
 data/cache/**
 data/*.db
+
+# DeepSeek 账号导出（手机号 / OAuth，不进 git）
+deepseek_data-*/user.json
 
 人脸库（参考照与索引不进 git）
 data/faces/**/*
