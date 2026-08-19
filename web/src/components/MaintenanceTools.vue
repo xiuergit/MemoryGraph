@@ -13,6 +13,46 @@
       </el-tag>
     </div>
 
+    <el-card v-if="job.running || job.phase === 'done' || job.phase === 'cancelled' || job.error" class="tool-card job-card" shadow="never">
+      <template #header>
+        <span class="card-title">⏳ 任务进度</span>
+      </template>
+      <div v-if="job.running" class="job-running">
+        <div class="job-title">{{ jobKindLabel(job.kind) }} · {{ job.year }} 年</div>
+        <el-progress
+          :percentage="jobProgressPercent"
+          :stroke-width="10"
+          :status="job.phase === 'sync' ? 'warning' : undefined"
+        />
+        <div class="job-stats">
+          {{ job.message || '运行中…' }}
+          <span v-if="job.total > 0"> · {{ job.current }}/{{ job.total }}</span>
+          <span v-if="job.success || job.skipped || job.failed">
+            · 成功 {{ job.success }} · 跳过 {{ job.skipped }} · 失败 {{ job.failed }}
+          </span>
+        </div>
+        <div v-if="job.current_file" class="job-file">{{ job.current_file }}</div>
+        <div class="job-actions">
+          <el-button size="small" type="danger" plain :loading="jobCancelling" @click="cancelJob">
+            取消任务
+          </el-button>
+        </div>
+        <p class="step-hint job-hint">取消会在<strong>当前这张</strong>跑完后停；Ctrl+C 停 dev.sh 后若 CPU 仍高，可能还有别的 Desk 实例在跑。</p>
+      </div>
+      <div v-else-if="job.error" class="result-box error-box">{{ job.error }}</div>
+      <div v-else-if="job.phase === 'cancelled' && job.result?.process" class="result-box">
+        已取消 · 已扫描 {{ job.result.process.total }} · 成功 {{ job.result.process.success }} ·
+        跳过 {{ job.result.process.skipped }} · 失败 {{ job.result.process.failed }}
+      </div>
+      <div v-else-if="job.result?.process" class="result-box">
+        完成 · 扫描 {{ job.result.process.total }} · 成功 {{ job.result.process.success }} ·
+        跳过 {{ job.result.process.skipped }} · 失败 {{ job.result.process.failed }}
+        <span v-if="job.result.sync">
+          · sync 新增 {{ job.result.sync.added }} · 更新 {{ job.result.sync.updated }}
+        </span>
+      </div>
+    </el-card>
+
     <el-row :gutter="20">
       <el-col :span="12" :xs="24">
         <el-card class="tool-card" shadow="never">
@@ -109,6 +149,90 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="20">
+      <el-col :span="12" :xs="24">
+        <el-card class="tool-card" shadow="never">
+          <template #header>
+            <span class="card-title">📷 照片 JSON（新图入库）</span>
+          </template>
+          <p class="step-hint">只扫指定年份目录（如 photos/2026/）里<strong>还没有 JSON</strong>的新图；已有 JSON 和手改过的都会跳过。</p>
+          <el-form label-width="100px" @submit.prevent>
+            <el-form-item label="年份">
+              <el-input v-model="photos.year" placeholder="如 2026" clearable class="year-input" />
+            </el-form-item>
+            <el-form-item label="完成后">
+              <el-checkbox v-model="photos.sync_after">同步 SQLite 索引</el-checkbox>
+            </el-form-item>
+          </el-form>
+          <el-button
+            type="primary"
+            :loading="loading.processPhotos"
+            @click="runProcessPhotos"
+          >
+            更新照片 JSON
+          </el-button>
+          <pre class="cli-hint">python tools/photo2json/main.py --input data/photos/2026</pre>
+          <div v-if="results.photos" class="result-box">
+            <div>
+              扫描 {{ results.photos.process.total }} · 成功 {{ results.photos.process.success }} ·
+              跳过 {{ results.photos.process.skipped }} · 失败 {{ results.photos.process.failed }}
+            </div>
+            <div v-if="results.photos.sync">
+              sync: 新增 {{ results.photos.sync.added }} · 更新 {{ results.photos.sync.updated }}
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+
+      <el-col :span="12" :xs="24">
+        <el-card class="tool-card" shadow="never">
+          <template #header>
+            <span class="card-title">🎬 视频 JSON（video.v1）</span>
+          </template>
+          <p class="step-hint">只扫指定年份目录里<strong>还没有 JSON</strong>的新视频；已有 JSON 和手改过的都会跳过。</p>
+          <el-form label-width="100px" @submit.prevent>
+            <el-form-item label="年份">
+              <el-input v-model="videos.year" placeholder="如 2026" clearable class="year-input" />
+            </el-form-item>
+            <el-form-item label="本次上限">
+              <el-input-number
+                v-model="videos.limit"
+                :min="1"
+                :max="50000"
+                placeholder="留空=不限"
+                controls-position="right"
+                class="limit-input"
+              />
+              <span class="inline-hint">留空处理该年全部新视频</span>
+            </el-form-item>
+            <el-form-item label="模式">
+              <el-checkbox v-model="videos.no_ai">仅元数据（--no-ai）</el-checkbox>
+            </el-form-item>
+            <el-form-item label="完成后">
+              <el-checkbox v-model="videos.sync_after">同步 SQLite 索引</el-checkbox>
+            </el-form-item>
+          </el-form>
+          <el-button
+            type="primary"
+            :loading="loading.processVideos"
+            @click="runProcessVideos"
+          >
+            更新视频 JSON
+          </el-button>
+          <pre class="cli-hint">python tools/video2json/main.py --input data/photos/2026 [--limit N] [--no-ai]</pre>
+          <div v-if="results.videos" class="result-box">
+            <div>
+              扫描 {{ results.videos.process.total }} · 成功 {{ results.videos.process.success }} ·
+              跳过 {{ results.videos.process.skipped }} · 失败 {{ results.videos.process.failed }}
+            </div>
+            <div v-if="results.videos.sync">
+              sync: 新增 {{ results.videos.sync.added }} · 更新 {{ results.videos.sync.updated }}
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-card class="tool-card sync-card" shadow="never">
       <template #header>
         <span class="card-title">🗂 索引</span>
@@ -133,7 +257,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -141,6 +265,8 @@ const loading = reactive({
   regeocode: false,
   rebuildIndex: false,
   backfillFaces: false,
+  processPhotos: false,
+  processVideos: false,
   sync: false,
   events: false,
 })
@@ -157,16 +283,141 @@ const faces = reactive({
   sync_after: true,
 })
 
+const photos = reactive({
+  year: '2026',
+  sync_after: true,
+})
+
+const videos = reactive({
+  year: '2026',
+  limit: null,
+  no_ai: false,
+  sync_after: true,
+})
+
 const syncForce = ref(false)
 
 const results = reactive({
   regeocode: null,
   faces: null,
+  photos: null,
+  videos: null,
   sync: null,
   events: null,
 })
 
 const runtimeConfig = ref(null)
+const jobCancelling = ref(false)
+
+const job = reactive({
+  running: false,
+  kind: '',
+  year: '',
+  phase: '',
+  current: 0,
+  total: 0,
+  current_file: '',
+  success: 0,
+  skipped: 0,
+  failed: 0,
+  message: '',
+  error: '',
+  cancelled: false,
+  result: null,
+})
+
+let jobPollTimer = null
+
+const jobProgressPercent = computed(() => {
+  if (job.phase === 'sync') return 100
+  if (!job.total) return job.running ? 5 : 0
+  return Math.min(100, Math.round((job.current / job.total) * 100))
+})
+
+function jobKindLabel(kind) {
+  if (kind === 'photos') return '照片 JSON'
+  if (kind === 'videos') return '视频 JSON'
+  return kind || '维护任务'
+}
+
+function applyJobStatus(data) {
+  Object.assign(job, {
+    running: !!data.running,
+    kind: data.kind || '',
+    year: data.year || '',
+    phase: data.phase || '',
+    current: data.current || 0,
+    total: data.total || 0,
+    current_file: data.current_file || '',
+    success: data.success || 0,
+    skipped: data.skipped || 0,
+    failed: data.failed || 0,
+    message: data.message || '',
+    error: data.error || '',
+    cancelled: !!data.cancelled,
+    result: data.result || null,
+  })
+  loading.processPhotos = data.running && data.kind === 'photos'
+  loading.processVideos = data.running && data.kind === 'videos'
+}
+
+function stopJobPoll() {
+  if (jobPollTimer) {
+    clearInterval(jobPollTimer)
+    jobPollTimer = null
+  }
+}
+
+function startJobPoll() {
+  stopJobPoll()
+  jobPollTimer = setInterval(async () => {
+    try {
+      const res = await axios.get('/api/tools/job-status')
+      applyJobStatus(res.data)
+      if (!res.data.running) {
+        stopJobPoll()
+        if (res.data.error) {
+          ElMessage.error(res.data.error)
+        } else if (res.data.cancelled) {
+          ElMessage.warning('任务已取消')
+          if (res.data.kind === 'photos') results.photos = res.data.result
+          if (res.data.kind === 'videos') results.videos = res.data.result
+        } else if (res.data.result?.process) {
+          const n = res.data.result.process.success
+          const label = res.data.kind === 'videos' ? '条' : '张'
+          ElMessage.success(`本批成功 ${n} ${label}`)
+          if (res.data.kind === 'photos') results.photos = res.data.result
+          if (res.data.kind === 'videos') results.videos = res.data.result
+        }
+      }
+    } catch {
+      /* 轮询失败不打断任务 */
+    }
+  }, 1500)
+}
+
+async function refreshJobStatus() {
+  try {
+    const res = await axios.get('/api/tools/job-status')
+    applyJobStatus(res.data)
+    if (res.data.running) startJobPoll()
+  } catch {
+    /* ignore */
+  }
+}
+
+async function cancelJob() {
+  jobCancelling.value = true
+  try {
+    await axios.post('/api/tools/job-cancel')
+    ElMessage.info('已请求取消，当前这张完成后停止')
+    await refreshJobStatus()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '取消失败')
+  } finally {
+    jobCancelling.value = false
+  }
+}
 
 async function loadConfig() {
   try {
@@ -177,7 +428,32 @@ async function loadConfig() {
   }
 }
 
-onMounted(loadConfig)
+onMounted(async () => {
+  await loadConfig()
+  await refreshJobStatus()
+})
+
+onUnmounted(stopJobPoll)
+
+async function startMediaJob(endpoint, payload, kind) {
+  if (job.running) {
+    ElMessage.warning('已有任务在运行，请等当前任务完成')
+    return
+  }
+  if (kind === 'photos') results.photos = null
+  if (kind === 'videos') results.videos = null
+  job.error = ''
+  job.result = null
+  try {
+    const res = await axios.post(endpoint, payload)
+    applyJobStatus(res.data.job || { running: true, kind, year: payload.year })
+    startJobPoll()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '任务启动失败')
+    loading.processPhotos = false
+    loading.processVideos = false
+  }
+}
 
 async function runRegeocode() {
   const isFull = regeocode.limit == null
@@ -238,6 +514,32 @@ async function runBackfillFaces() {
   } finally {
     loading.backfillFaces = false
   }
+}
+
+async function runProcessPhotos() {
+  const year = photos.year.trim()
+  if (!year) {
+    ElMessage.warning('请填写年份，如 2026')
+    return
+  }
+  await startMediaJob('/api/tools/process-photos', {
+    year,
+    sync_after: photos.sync_after,
+  }, 'photos')
+}
+
+async function runProcessVideos() {
+  const year = videos.year.trim()
+  if (!year) {
+    ElMessage.warning('请填写年份，如 2026')
+    return
+  }
+  await startMediaJob('/api/tools/process-videos', {
+    year,
+    limit: videos.limit || null,
+    no_ai: videos.no_ai,
+    sync_after: videos.sync_after,
+  }, 'videos')
 }
 
 async function runSync() {
@@ -329,9 +631,49 @@ async function runEventsSync() {
   border: 1px solid var(--border);
 }
 
+.job-card {
+  margin-bottom: 1.25rem;
+  background: var(--panel);
+  border-color: var(--border);
+}
+
+.job-title {
+  font-weight: 600;
+  margin-bottom: 0.65rem;
+}
+
+.job-stats {
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+}
+
+.job-file {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.job-actions {
+  margin-top: 0.75rem;
+}
+
+.job-hint {
+  margin: 0.75rem 0 0;
+}
+
+.error-box {
+  background: rgba(169, 68, 68, 0.12);
+  border-color: rgba(169, 68, 68, 0.35);
+}
+
 .limit-input {
   width: 140px;
   margin-right: 0.5rem;
+}
+
+.year-input {
+  width: 120px;
 }
 
 .inline-hint {

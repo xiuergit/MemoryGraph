@@ -1831,6 +1831,123 @@ def get_companions_at_place(
     }
 
 
+def get_person_companion_rank(
+    conn: sqlite3.Connection,
+    *,
+    person: str,
+    limit: int = 12,
+    photo_limit: int = 0,
+) -> dict[str, Any]:
+    """某人全库同框人物排行（按合影张数）。
+
+    photo_limit<=0：与第一名同框的证据图全量（PHOTO_FETCH_CAP 内）。
+    """
+    found = _find_member(person)
+    if found is None:
+        return {"found": False, "person": person}
+
+    anchor_id, member = found
+    anchor_name = member.name
+    rank_limit = max(1, min(int(limit or 12), 50))
+
+    companion_rows = conn.execute(
+        """
+        SELECT
+            pp2.person_name AS name,
+            pp2.person_id AS person_id,
+            COUNT(DISTINCT p.photo_id) AS photo_count
+        FROM photos p
+        JOIN photo_people pp ON pp.photo_id = p.photo_id
+        JOIN photo_people pp2 ON pp2.photo_id = p.photo_id
+        WHERE (pp.person_name = ? OR pp.person_id = ?)
+          AND pp2.person_name != ''
+          AND pp2.person_id != ?
+          AND pp2.person_name != ?
+        GROUP BY pp2.person_id, pp2.person_name
+        ORDER BY photo_count DESC, name ASC
+        LIMIT ?
+        """,
+        (anchor_name, anchor_id, anchor_id, anchor_name, rank_limit),
+    ).fetchall()
+
+    companions = [
+        {
+            "name": row["name"],
+            "person_id": row["person_id"],
+            "photo_count": int(row["photo_count"] or 0),
+        }
+        for row in companion_rows
+        if not str(row["person_id"] or "").startswith("unk_")
+    ]
+
+    # 含至少一名其他已识别成员的合影总数
+    total_with = int(
+        conn.execute(
+            """
+            SELECT COUNT(DISTINCT p.photo_id)
+            FROM photos p
+            JOIN photo_people pp ON pp.photo_id = p.photo_id
+            WHERE (pp.person_name = ? OR pp.person_id = ?)
+              AND EXISTS (
+                SELECT 1 FROM photo_people pp2
+                WHERE pp2.photo_id = p.photo_id
+                  AND pp2.person_name != ''
+                  AND pp2.person_id != ?
+                  AND pp2.person_name != ?
+                  AND pp2.person_id NOT LIKE 'unk_%'
+              )
+            """,
+            (anchor_name, anchor_id, anchor_id, anchor_name),
+        ).fetchone()[0]
+        or 0
+    )
+
+    photos: list[dict[str, Any]] = []
+    top_companion = companions[0]["name"] if companions else ""
+    top_companion_id = companions[0]["person_id"] if companions else ""
+    if top_companion:
+        fetch_limit = photo_limit if photo_limit > 0 else PHOTO_FETCH_CAP
+        photo_rows = conn.execute(
+            """
+            SELECT
+                p.photo_id,
+                p.timestamp,
+                p.scene,
+                p.location,
+                p.location_coords,
+                p.source_path,
+                GROUP_CONCAT(DISTINCT pp_all.person_name) AS people
+            FROM photos p
+            JOIN photo_people pp ON pp.photo_id = p.photo_id
+            JOIN photo_people pp2 ON pp2.photo_id = p.photo_id
+            LEFT JOIN photo_people pp_all ON pp_all.photo_id = p.photo_id
+            WHERE (pp.person_name = ? OR pp.person_id = ?)
+              AND (pp2.person_name = ? OR pp2.person_id = ?)
+            GROUP BY p.photo_id
+            ORDER BY p.timestamp DESC
+            LIMIT ?
+            """,
+            (
+                anchor_name,
+                anchor_id,
+                top_companion,
+                top_companion_id,
+                fetch_limit,
+            ),
+        ).fetchall()
+        photos = [dict(row) for row in photo_rows]
+
+    return {
+        "found": True,
+        "person": anchor_name,
+        "companions": companions,
+        "companion_count": len(companions),
+        "top_companion": top_companion,
+        "photo_count": total_with,
+        "photos": photos,
+        "shown": len(photos),
+    }
+
 
 def get_person_at_place(
     conn: sqlite3.Connection,
@@ -2587,6 +2704,17 @@ def gather_facts(
             "place": place,
             **result,
         }
+
+    if intent == "person_companion_rank":
+        rank_limit = int(params.get("limit", 12))
+        photo_limit = int(params.get("photo_limit", 0))
+        result = get_person_companion_rank(
+            conn,
+            person=person,
+            limit=rank_limit,
+            photo_limit=photo_limit,
+        )
+        return {"intent": intent, "person": person, **result}
 
     if intent == "person_at_place":
         place = str(params.get("place", ""))

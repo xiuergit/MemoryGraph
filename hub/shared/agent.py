@@ -49,6 +49,14 @@ _PLACES_LIST_RE = re.compile(
     r"哪些地方|什么地方|去过哪些(?!城市)|(?:去过|玩过)(?:的)?地方"
 )
 _GROUP_PHOTO_RE = re.compile(r"合影|合照|同框")
+# 「和谁合影最多 / 哪个人合照最多」——同框人物排行（勿落到地点排行）
+_COMPANION_RANK_RE = re.compile(
+    r"(?:合影|合照|同框).{0,12}最多|"
+    r"最多.{0,12}(?:合影|合照|同框)|"
+    r"和(?:哪个人|谁|哪个).{0,10}(?:合影|合照|同框)|"
+    r"(?:哪个人|谁|哪些人).{0,10}(?:合影|合照|同框).{0,8}最|"
+    r"(?:合影|合照|同框).{0,8}(?:最多的人|最多的是谁|和谁最多)"
+)
 _PEAK_DAY_RE = re.compile(r"哪天的|哪一天|哪天.*最多|照片最多|最多.*哪天|一天.*最多")
 _EMOTION_CTX_RE = re.compile(r"表情|情绪|emotion", re.IGNORECASE)
 _TERM_QUESTION_RE = re.compile(r"有.*吗|有没有|没有.*吗|吗[？?]?$|是不是")
@@ -81,6 +89,7 @@ _CN_AGE_DIGITS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "�
 _PLACE_PLACEHOLDERS = frozenset({
     "哪里", "哪儿", "什么地方", "哪些地方", "哪里玩", "哪儿玩", "的地方",
     "哪了", "哪儿了", "哪里了", "哪", "谁", "哪些人", "和谁", "有谁",
+    "最多", "最少", "最长", "最久",
 })
 _KEYWORD_STOP = frozenset({
     "", "照片", "相片", "图片", "最近", "最新", "一些", "一下", "什么",
@@ -99,6 +108,7 @@ _ASK_EXAMPLES = (
     "面面去动物园是什么时候",
     "面面哪些人去过动物园",
     "妈妈和面面的合影",
+    "面面和哪个人的合影最多",
     "面面住过哪些地方",
 )
 
@@ -126,6 +136,7 @@ _LLM_SKIP_INTENTS = frozenset({
     "term_lookup",
     "term_first",
     "companions_at_place",
+    "person_companion_rank",
     "person_at_place",
     "person_recent_places",
     "unknown",
@@ -282,6 +293,7 @@ def _extract_place_query(question: str) -> str:
             place = place.replace(name, "")
         place = re.sub(r"[？?，,。\s]", "", place)
         place = place.removesuffix("是").strip()
+        place = place.removeprefix("的").strip()
         place = re.sub(r"^过+", "", place).strip()
         place = re.sub(r"(玩过|去过|待过|几次|几趟)+$", "", place).strip()
         # 去掉「哪些人」残留
@@ -297,6 +309,19 @@ def _extract_place_query(question: str) -> str:
     return ""
 
 
+def _is_place_when_question(question: str, place_query: str) -> bool:
+    """「去动物园是什么时候 / 第一次去动物园」——按地点查，勿走 keyword_first。"""
+    if not place_query:
+        return False
+    if re.search(r"去(?:过)?\s*.+?(?:是什么时候|是何时|几时)", question):
+        return True
+    if re.search(r"(?:什么时候|何时).{0,12}去(?:过|的)?", question):
+        return True
+    if re.search(r"(?:第一次|首次|最早).{0,8}去(?:过)?", question):
+        return True
+    return False
+
+
 def _is_companions_at_place_question(question: str) -> bool:
     """「面面哪些人去过动物园 / 和谁去过公园」——问同框人物，不是最近地点。"""
     return bool(
@@ -305,6 +330,13 @@ def _is_companions_at_place_question(question: str) -> bool:
             question,
         )
     )
+
+
+def _is_companion_rank_question(question: str) -> bool:
+    """「面面和哪个人合影最多 / 和谁合照最多」——全库同框排行，不是地点排行。"""
+    if re.search(r"地方|地点|哪里|哪儿|去过|去哪|常去", question):
+        return False
+    return bool(_COMPANION_RANK_RE.search(question))
 
 
 def _detect_stats_focus(question: str) -> str:
@@ -506,12 +538,31 @@ def route_intent(question: str) -> tuple[str, dict[str, Any]]:
         params["limit"] = _route_photo_limit(q)
         return "group_photos", params
 
+    # 「和谁合影最多」须在地点排行（「最多」）之前
+    if _is_companion_rank_question(q):
+        params["person"] = _extract_person(q)
+        params["limit"] = _extract_photo_limit(q, default=12, max_limit=50)
+        params["photo_limit"] = _route_photo_limit(q)
+        return "person_companion_rank", params
+
     emotion_term = _extract_emotion_term(q)
     if emotion_term and _FIRST_WHEN_RE.search(q):
         params["person"] = _extract_person(q)
         params["term"] = emotion_term
         params["term_type"] = "emotion"
         return "term_first", params
+
+    # 「去动物园是什么时候」须在 keyword_first 之前（否则会抽成「去动物园是」）
+    place_query = _extract_place_query(q)
+    if _FIRST_WHEN_RE.search(q) and _is_place_when_question(q, place_query):
+        params["person"] = _extract_person(q)
+        params["place"] = place_query
+        params["limit"] = _route_photo_limit(q)
+        if _AGE_RE.search(q):
+            params["focus"] = "age"
+        elif re.search(r"吗[？?]?$", q):
+            params["focus"] = "yesno"
+        return "person_at_place", params
 
     if _FIRST_WHEN_RE.search(q):
         keyword = _extract_keyword_query(q)
@@ -536,7 +587,6 @@ def route_intent(question: str) -> tuple[str, dict[str, Any]]:
             params["focus"] = "why"
         return "term_lookup", params
 
-    place_query = _extract_place_query(q)
     if place_query and _is_companions_at_place_question(q):
         params["person"] = _extract_person(q)
         params["place"] = place_query
@@ -1289,6 +1339,31 @@ def _template_answer(facts: dict[str, Any]) -> str:
             answer = f"「{place}」相关照片里出现过：{names}。"
         if total:
             answer = answer.rstrip("。") + f"。相关照片一共 {total} 张。"
+        return _with_cli_photo_lines(answer, photos, facts=facts)
+
+    if intent == "person_companion_rank":
+        if not facts.get("found", True):
+            return f"没有在家庭成员档案里找到「{facts.get('person', '')}」。请检查 data/faces/registry.json。"
+        person = facts.get("person") or "家人"
+        companions = facts.get("companions") or []
+        photos = facts.get("photos") or []
+        total_with = int(facts.get("photo_count") or 0)
+        if not companions:
+            return f"还没有找到与{person}同框的其他家庭成员（需照片里同时识别到两人）。"
+        top = companions[0]
+        top_name = top.get("name") or "某人"
+        top_count = int(top.get("photo_count") or 0)
+        parts = [f"{c['name']}（{c['photo_count']} 张）" for c in companions[:12]]
+        more = ""
+        if len(companions) > 12:
+            more = f"等 {len(companions)} 人"
+        ranking = "、".join(parts) + more
+        answer = (
+            f"{person}合影最多的是{top_name}（{top_count} 张）。"
+            f"同框排行：{ranking}。"
+        )
+        if total_with:
+            answer += f"含其他成员的合影共 {total_with} 张。"
         return _with_cli_photo_lines(answer, photos, facts=facts)
 
     if intent == "recent_outings":

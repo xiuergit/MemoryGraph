@@ -16,16 +16,22 @@
       <div class="detail-body">
         <div class="photo-panel" v-if="detail.has_photo_file">
           <div v-if="isVideo" class="video-preview-panel">
-            <img
-              class="video-poster"
-              :src="previewUrl(detail.source_path)"
-              :alt="detail.photo_id"
-            />
+            <video
+              class="video-player"
+              controls
+              playsinline
+              preload="metadata"
+              :key="detail.source_path"
+              :poster="previewUrl(detail.source_path)"
+              :src="mediaUrl(detail.source_path)"
+            >
+              当前浏览器无法播放该视频
+            </video>
             <div class="video-meta">
               <span v-if="videoDurationLabel">时长 {{ videoDurationLabel }}</span>
               <span v-if="videoSizeLabel">{{ videoSizeLabel }}</span>
             </div>
-            <el-button type="primary" @click="openSource">用系统播放器打开</el-button>
+            <el-button link type="primary" @click="openSource">用系统播放器打开</el-button>
           </div>
           <FaceEnrollPanel
             v-else
@@ -245,6 +251,10 @@ function previewUrl(path) {
   return `/api/preview?path=${encodeURIComponent(path)}&size=960`
 }
 
+function mediaUrl(path) {
+  return `/api/media?path=${encodeURIComponent(path)}`
+}
+
 async function openSource() {
   if (!detail.value?.source_path) return
   try {
@@ -439,13 +449,13 @@ onMounted(() => {
   gap: 0.75rem;
 }
 
-.video-poster {
+.video-player {
   width: 100%;
   max-height: 420px;
-  object-fit: contain;
   border-radius: 8px;
   background: #010409;
   border: 1px solid var(--border);
+  vertical-align: middle;
 }
 
 .video-meta {
@@ -461,6 +471,10 @@ onMounted(() => {
   grid-template-columns: 350px 1fr;
   gap: 1.5rem;
   margin-bottom: 2rem;
+}
+
+.detail-body:has(.video-preview-panel) {
+  grid-template-columns: minmax(420px, 0.9fr) 1fr;
 }
 
 .photo-panel h3,

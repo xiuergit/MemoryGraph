@@ -40,7 +40,9 @@
 1. `person_age_place_rank` — N 岁 + 去哪最多 / 待最久
 2. `library_stats` — 多少张 / 一共 / 统计
 3. `group_photos` — X和Y合影 / 合照有哪些
+3b. `person_companion_rank` — 和谁合影最多 / 哪个人合照最多（同框排行）
 4. `term_first` — 第一次 / 最早 / 什么时候 + 表情词
+4b. `person_at_place` — **去某地是什么时候** / 第一次去某地（须先于 `keyword_first`）
 5. `term_lookup` — 有没有 / 表情里 / **人名+表情短句**（面面哭）+ 表情词
 6. `person_age` — 几岁 / 多大
 7. `person_peak_day` — 哪天的照片最多 / 在什么地方
@@ -49,11 +51,11 @@
 10. `person_cities_visited` — 哪些城市 / 哪些省（结构化地址）
 11. `person_places_visited` — 去过哪些地方（POI 列表）
 12. `companions_at_place` — 哪些人 / 和谁 去过某地（同框人物）
-12b. `person_at_place` — 去某地什么时候 / 去过几次
+12b. `person_at_place` — 去某地几次 / 去过吗（无「什么时候」时）
 13. `person_recent_places` — 最近在哪 / 去过（时间序）
 14. `recent_photos` — 最近 + 照片；或「人名的照片」（全量，非默认 10 张）
 14b. `keyword_search` — 有没有X / 搜X / X的照片 / **人名+活动短句**（面面骑车、面面坐船）
-14c. `keyword_first` — 第一次 / 最早 / 什么时候 + 活动词（面面第一次轮滑）
+14c. `keyword_first` — 第一次 / 最早 / 什么时候 + 活动词（面面第一次轮滑；**不含**「去某地是什么时候」）
 15. **`unknown`** — 未匹配时提示可问示例（不再落到 `recent_photos`）
 
 ---
@@ -186,6 +188,24 @@ python tools/memory_ask/main.py "面面哪天的照片最多，在什么地方"
 ```bash
 python tools/memory_ask/main.py "面面哪些人去过动物园"
 python tools/memory_ask/main.py "面面和谁去过迪士尼"
+```
+
+---
+
+### `person_companion_rank` — 和谁合影最多
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 「和哪个人 / 和谁」+「合影/合照/同框」+「最多」；或「合影最多的人」 |
+| **参数** | `person`、`limit`（排行人数，默认 12）、`photo_limit`（与第一名同框的证据图） |
+| **查库** | `get_person_companion_rank()` — `photo_people` 同框计数，排除 `unk_*` |
+| **回答** | 第一名 + 同框排行 + 与第一名的合影证据图 |
+
+与 `group_photos`（指定两人列合影）、`companions_at_place`（某地同框）、`person_place_rank`（地点排行，勿因「最多」误入）区分。
+
+```bash
+python tools/memory_ask/main.py "面面和哪个人的合影最多"
+python tools/memory_ask/main.py "面面和谁合照最多"
 ```
 
 ---

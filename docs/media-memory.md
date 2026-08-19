@@ -58,7 +58,7 @@ IMG_8079.MOV   →  video  JSON  (video_id = …_IMG_8079_v)
 | photo → JSON（`photo2json`） | ✅ 已有 |
 | video → JSON | ✅ `python tools/video2json/main.py`（OpenCV 元数据 + 关键帧 → `analyze_image`） |
 | 索引 `media_type` | ✅ sync 写入 `photo` / `video` / `audio`；Vue 列表可筛「视频」 |
-| Desk 预览 | ✅ `/api/preview` 对视频走关键帧封面 |
+| Desk 预览 / 播放 | ✅ `/api/preview` 关键帧封面；`/api/media` 原片流 + 详情页内 `<video>` |
 | audio → JSON | 🔜 协议占位；工具未做 |
 | 索引 `media_type` | 🔜 随 video/audio sync 扩展 |
 | 问答 / 事件纳入视频 | 🔜 有 JSON + 索引后即可并行推进 |

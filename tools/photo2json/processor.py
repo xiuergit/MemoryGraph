@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from hub.shared.utils import (
     extract_exif_timestamp,
     get_photo_id,
     iter_image_files,
+    media_path_matches_year,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,6 +168,9 @@ def process_folder(
     *,
     skip_existing: bool = True,
     device_id: str = "mac",
+    year: str = "",
+    progress_cb: Callable[[dict[str, object]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ProcessStats:
     """遍历输入目录中的图片，逐张分析并输出 JSON 到 memory 目录。
 
@@ -176,19 +181,30 @@ def process_folder(
         memory_dir: JSON 输出目录，默认 data/memory/。
         skip_existing: 若对应 JSON 已存在则跳过。
         device_id: 写入 JSON 的 device_id 字段。
+        year: 只处理某年路径下的图片，如 2026。
     """
     input_path = Path(input_dir or PHOTOS_DIR)
     memory_path = Path(memory_dir or MEMORY_DIR)
     # --input 只缩小扫描范围；photo_id 一律相对 PHOTOS_DIR
     photos_root = PHOTOS_DIR.resolve()
+    year = year.strip()
+    if year:
+        year_dir = photos_root / year
+        if year_dir.is_dir():
+            input_path = year_dir
+        else:
+            alt = photos_root / f"{year}年"
+            if alt.is_dir():
+                input_path = alt
     stats = ProcessStats()
     start = time.perf_counter()
 
     logger.info(
-        "开始处理: 输入=%s, 输出=%s, photo_id根=%s",
+        "开始处理: 输入=%s, 输出=%s, photo_id根=%s%s",
         input_path.resolve(),
         memory_path.resolve(),
         photos_root,
+        f", 年份={year}" if year else "",
     )
 
     try:
@@ -197,6 +213,11 @@ def process_folder(
         logger.error("失败: %s", exc)
         stats.elapsed_seconds = time.perf_counter() - start
         return stats
+
+    if year:
+        image_files = [
+            f for f in image_files if media_path_matches_year(f, photos_root, year)
+        ]
 
     stats.total = len(image_files)
 
@@ -207,7 +228,20 @@ def process_folder(
 
     memory_path.mkdir(parents=True, exist_ok=True)
 
-    for image_file in image_files:
+    if progress_cb:
+        progress_cb(
+            {
+                "phase": "process",
+                "total": stats.total,
+                "current": 0,
+                "message": f"共 {stats.total} 张待扫描",
+            }
+        )
+
+    for idx, image_file in enumerate(image_files, start=1):
+        if should_cancel and should_cancel():
+            logger.info("任务已取消，停止于 %d/%d", idx - 1, stats.total)
+            break
         rel = image_file.relative_to(input_path)
         try:
             logger.info("处理中: %s", rel)
@@ -228,6 +262,19 @@ def process_folder(
             stats.failed += 1
             stats.failed_files.append(str(rel))
             logger.error("失败: %s — %s", rel, exc)
+        if progress_cb:
+            progress_cb(
+                {
+                    "phase": "process",
+                    "current": idx,
+                    "total": stats.total,
+                    "current_file": str(rel),
+                    "success": stats.success,
+                    "skipped": stats.skipped,
+                    "failed": stats.failed,
+                    "message": f"已扫描 {idx}/{stats.total}",
+                }
+            )
 
     stats.elapsed_seconds = time.perf_counter() - start
 

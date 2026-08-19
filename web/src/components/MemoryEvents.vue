@@ -232,7 +232,12 @@
 
             <section class="photo-section">
               <div class="photo-head">
-                <h3>照片 · {{ detail.photos?.length || 0 }}</h3>
+                <h3>
+                  媒体 · {{ detail.photos?.length || 0 }}
+                  <template v-if="eventVideoCount">
+                    <span class="muted">（视频 {{ eventVideoCount }}）</span>
+                  </template>
+                </h3>
                 <span class="muted photo-select-hint">点图多选 · 改地址 / 删除</span>
               </div>
 
@@ -298,6 +303,14 @@
                       loading="lazy"
                     />
                     <div v-else class="photo-placeholder">无预览</div>
+                    <span
+                      v-if="photo.media_type === 'video'"
+                      class="media-badge"
+                    >视频</span>
+                    <span
+                      v-else-if="photo.media_type === 'audio'"
+                      class="media-badge audio"
+                    >音频</span>
                   </button>
                   <div class="photo-meta" :title="photo.location || '无地址'">
                     {{ photo.location || '无地址' }}
@@ -805,6 +818,10 @@ const photoLocationGroups = computed(() => {
     }))
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh'))
 })
+
+const eventVideoCount = computed(() =>
+  (detail.value?.photos || []).filter((p) => p.media_type === 'video').length,
+)
 
 function previewUrl(path) {
   return `/api/preview?path=${encodeURIComponent(path)}&size=640`
@@ -1651,6 +1668,7 @@ onMounted(async () => {
 }
 
 .photo-thumb {
+  position: relative;
   padding: 0;
   border: none;
   background: transparent;
@@ -1665,6 +1683,24 @@ onMounted(async () => {
   aspect-ratio: 1;
   object-fit: cover;
   display: block;
+}
+
+.media-badge {
+  position: absolute;
+  left: 0.3rem;
+  bottom: 0.3rem;
+  z-index: 2;
+  padding: 0.08rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  line-height: 1.2;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.media-badge.audio {
+  background: rgba(30, 80, 120, 0.85);
 }
 
 .photo-placeholder {

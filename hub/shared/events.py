@@ -1057,6 +1057,7 @@ def get_event(conn: sqlite3.Connection, event_id: str) -> dict[str, Any] | None:
             p.location,
             p.scene,
             p.source_path,
+            IFNULL(p.media_type, 'photo') AS media_type,
             p.weather_condition,
             p.weather_temp_min_c,
             p.weather_temp_max_c,

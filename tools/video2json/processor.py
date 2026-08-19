@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from hub.shared.schema import (
     empty_analysis,
     empty_location_admin,
 )
-from hub.shared.utils import get_photo_id
+from hub.shared.utils import get_photo_id, media_path_matches_year
 from hub.shared.video_meta import (
     find_live_photo_still,
     get_video_id,
@@ -173,18 +174,31 @@ def process_folder(
     run_ai: bool = True,
     limit: int | None = None,
     files: list[Path] | None = None,
+    year: str = "",
+    progress_cb: Callable[[dict[str, object]], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ProcessStats:
     input_path = Path(input_dir or PHOTOS_DIR)
     memory_path = Path(memory_dir or MEMORY_DIR)
     photos_root = PHOTOS_DIR.resolve()
+    year = year.strip()
+    if year and files is None:
+        year_dir = photos_root / year
+        if year_dir.is_dir():
+            input_path = year_dir
+        else:
+            alt = photos_root / f"{year}年"
+            if alt.is_dir():
+                input_path = alt
     stats = ProcessStats()
     start = time.perf_counter()
 
     logger.info(
-        "开始处理视频: 输入=%s, 输出=%s, AI=%s",
+        "开始处理视频: 输入=%s, 输出=%s, AI=%s%s",
         input_path.resolve() if files is None else "(指定文件)",
         memory_path.resolve(),
         run_ai,
+        f", 年份={year}" if year else "",
     )
 
     if files is not None:
@@ -210,14 +224,36 @@ def process_folder(
         stats.elapsed_seconds = time.perf_counter() - start
         return stats
 
+    if year:
+        video_files = [
+            f for f in video_files if media_path_matches_year(f, photos_root, year)
+        ]
+        if not video_files:
+            logger.warning("该年份下未找到支持的视频文件")
+            stats.elapsed_seconds = time.perf_counter() - start
+            return stats
+
     memory_path.mkdir(parents=True, exist_ok=True)
+    scan_total = len(video_files)
+    if progress_cb:
+        progress_cb(
+            {
+                "phase": "process",
+                "total": scan_total,
+                "current": 0,
+                "message": f"共 {scan_total} 个视频待扫描",
+            }
+        )
     if limit is not None and limit >= 0:
         logger.info(
             "本次上限 %d 条（按成功写入计；已存在会跳过并继续往后找）",
             limit,
         )
 
-    for video_file in video_files:
+    for idx, video_file in enumerate(video_files, start=1):
+        if should_cancel and should_cancel():
+            logger.info("任务已取消，停止于 %d/%d", idx - 1, scan_total)
+            break
         if limit is not None and limit >= 0 and stats.success >= limit:
             logger.info(
                 "已达本次上限 %d 条，停止。下次再跑即可续补。",
@@ -256,6 +292,19 @@ def process_folder(
             stats.failed += 1
             stats.failed_files.append(rel)
             logger.exception("失败: %s (%s)", rel, exc)
+        if progress_cb:
+            progress_cb(
+                {
+                    "phase": "process",
+                    "current": idx,
+                    "total": scan_total,
+                    "current_file": rel,
+                    "success": stats.success,
+                    "skipped": stats.skipped,
+                    "failed": stats.failed,
+                    "message": f"已扫描 {idx}/{scan_total}",
+                }
+            )
 
     stats.elapsed_seconds = time.perf_counter() - start
     logger.info(

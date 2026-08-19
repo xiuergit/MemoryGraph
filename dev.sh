@@ -22,6 +22,14 @@ cleanup() {
   fi
   if [[ -n "${DESK_PID}" ]] && kill -0 "${DESK_PID}" 2>/dev/null; then
     kill "${DESK_PID}" 2>/dev/null || true
+    for _ in $(seq 1 12); do
+      kill -0 "${DESK_PID}" 2>/dev/null || break
+      sleep 0.25
+    done
+    if kill -0 "${DESK_PID}" 2>/dev/null; then
+      echo "Desk 仍在退出（可能在跑 AI），强制结束…"
+      kill -9 "${DESK_PID}" 2>/dev/null || true
+    fi
     wait "${DESK_PID}" 2>/dev/null || true
   fi
   echo "已停止。"

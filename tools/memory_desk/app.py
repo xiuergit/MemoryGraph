@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import subprocess
 import sys
+import threading
 from dataclasses import asdict
 from io import BytesIO
 from pathlib import Path
@@ -42,6 +44,12 @@ from hub.shared.index_db import (
     sync_memory_dir,
 )
 from hub.shared.location_cluster import regeocode_locations_from_memory
+from hub.shared.tool_job import finish as tool_job_finish
+from hub.shared.tool_job import is_cancelled as tool_job_is_cancelled
+from hub.shared.tool_job import request_cancel as tool_job_request_cancel
+from hub.shared.tool_job import snapshot as tool_job_snapshot
+from hub.shared.tool_job import start as tool_job_start
+from hub.shared.tool_job import update as tool_job_update
 from hub.shared.family import person_search_tokens, resolve_person
 from hub.shared.file_search import memory_json_for_photo, search_files
 from hub.shared.memory_edit import (
@@ -94,6 +102,11 @@ app = FastAPI(title="MemoryGraph Desk", version="0.1.0")
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heif", ".heic"}
 _VIDEO_EXTS = set(SUPPORTED_VIDEO_EXTENSIONS)
 _THUMB_DIR = DATA_DIR / "cache" / "thumbs"
+_MEDIA_TYPE_BY_EXT = {
+    ".mp4": "video/mp4",
+    ".m4v": "video/x-m4v",
+    ".mov": "video/quicktime",
+}
 
 
 def _resolve_under_data(path_str: str) -> Path:
@@ -260,6 +273,30 @@ def api_preview(
             return FileResponse(target)
 
     return FileResponse(cache_path, media_type="image/jpeg")
+
+
+def _media_type_for(path: Path) -> str:
+    guessed, _ = mimetypes.guess_type(str(path))
+    if guessed:
+        return guessed
+    return _MEDIA_TYPE_BY_EXT.get(path.suffix.lower(), "application/octet-stream")
+
+
+@app.get("/api/media")
+def api_media(path: str = Query(...)) -> FileResponse:
+    """原视频/图片流：供页内 <video> 播放（支持 Range 拖进度）。"""
+    target = _resolve_under_data(path)
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    suffix = target.suffix.lower()
+    if suffix not in _VIDEO_EXTS and suffix not in _IMAGE_EXTS:
+        raise HTTPException(status_code=415, detail="仅支持图片或视频原文件")
+    return FileResponse(
+        target,
+        media_type=_media_type_for(target),
+        filename=target.name,
+        content_disposition_type="inline",
+    )
 
 
 class OpenRequest(BaseModel):
@@ -1800,6 +1837,14 @@ class ToolsBackfillFacesBody(ToolsLimitBody):
     refill: bool = Field(True, description="强制重跑人脸（新人入库后建议开启）")
 
 
+class ToolsProcessMediaBody(ToolsLimitBody):
+    year: str = Field("", description="只处理某年路径下的媒体，如 2026")
+
+
+class ToolsProcessVideosBody(ToolsProcessMediaBody):
+    no_ai: bool = Field(False, description="只写元数据，不抽帧、不跑视觉/人脸（--no-ai）")
+
+
 def _rebuild_pydantic_models_for_dynamic_load() -> None:
     """main.py 用 importlib 加载本模块时，需 rebuild 含 Optional 注解的模型。"""
     import typing
@@ -1818,6 +1863,8 @@ def _rebuild_pydantic_models_for_dynamic_load() -> None:
         ToolsLimitBody,
         ToolsRegeocodeBody,
         ToolsBackfillFacesBody,
+        ToolsProcessMediaBody,
+        ToolsProcessVideosBody,
     ):
         model_cls.model_rebuild(_types_namespace=ns)
 
@@ -1894,6 +1941,104 @@ def api_tools_backfill_faces(body: ToolsBackfillFacesBody) -> dict[str, Any]:
     if body.sync_after:
         result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
     return result
+
+
+def _run_tool_job(kind: str, year: str, runner) -> dict[str, Any]:
+    """在后台线程跑维护任务；同时只允许一个任务。"""
+    try:
+        tool_job_start(kind, year=year)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    def _worker() -> None:
+        try:
+            result = runner()
+            tool_job_finish(result=result)
+        except Exception as exc:
+            tool_job_finish(error=str(exc))
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {"status": "started", "job": tool_job_snapshot()}
+
+
+@app.get("/api/tools/job-status")
+def api_tools_job_status() -> dict[str, Any]:
+    """当前维护任务进度（照片/视频 JSON 入库等）。"""
+    return tool_job_snapshot()
+
+
+@app.post("/api/tools/job-cancel")
+def api_tools_job_cancel() -> dict[str, Any]:
+    """取消当前维护任务（当前这张/这条处理完后停止）。"""
+    if not tool_job_request_cancel():
+        raise HTTPException(status_code=409, detail="当前没有运行中的任务")
+    return {"status": "cancelling", "job": tool_job_snapshot()}
+
+
+@app.post("/api/tools/process-photos")
+def api_tools_process_photos(body: ToolsProcessMediaBody) -> dict[str, Any]:
+    """扫描 data/photos/ 图片，仅为尚无 JSON 的新图生成 photo JSON（已有/手改均跳过）。"""
+    year = body.year.strip()
+    sync_after = body.sync_after
+
+    def runner() -> dict[str, Any]:
+        from tools.photo2json.processor import process_folder
+
+        def on_progress(data: dict[str, object]) -> None:
+            tool_job_update(**data)
+
+        stats = process_folder(
+            PHOTOS_DIR,
+            MEMORY_DIR,
+            skip_existing=True,
+            year=year,
+            progress_cb=on_progress,
+            should_cancel=tool_job_is_cancelled,
+        )
+        result: dict[str, Any] = {"status": "ok", "process": asdict(stats)}
+        if tool_job_is_cancelled():
+            return result
+        if sync_after:
+            tool_job_update(phase="sync", message="同步 SQLite 索引…")
+            result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
+        return result
+
+    return _run_tool_job("photos", year, runner)
+
+
+@app.post("/api/tools/process-videos")
+def api_tools_process_videos(body: ToolsProcessVideosBody) -> dict[str, Any]:
+    """扫描 data/photos/ 视频，仅为尚无 JSON 的新视频生成 video.v1 JSON（已有/手改均跳过）。"""
+    year = body.year.strip()
+    sync_after = body.sync_after
+    no_ai = body.no_ai
+    limit = body.limit
+
+    def runner() -> dict[str, Any]:
+        from tools.video2json.processor import process_folder
+
+        def on_progress(data: dict[str, object]) -> None:
+            tool_job_update(**data)
+
+        stats = process_folder(
+            PHOTOS_DIR,
+            MEMORY_DIR,
+            skip_existing=True,
+            run_ai=not no_ai,
+            limit=limit,
+            year=year,
+            progress_cb=on_progress,
+            should_cancel=tool_job_is_cancelled,
+        )
+        result: dict[str, Any] = {"status": "ok", "process": asdict(stats)}
+        if tool_job_is_cancelled():
+            return result
+        if sync_after:
+            tool_job_update(phase="sync", message="同步 SQLite 索引…")
+            result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
+        return result
+
+    return _run_tool_job("videos", year, runner)
 
 
 def _rel(path: Path) -> str:

@@ -35,6 +35,23 @@ def json_matches_year(data: dict[str, Any], json_file: Path, year: str) -> bool:
     return False
 
 
+def media_path_matches_year(file_path: Path, photos_root: Path, year: str) -> bool:
+    """按相对 photos/ 的路径判断是否属于某年（与 json_matches_year 规则对齐）。"""
+    if not year:
+        return True
+    try:
+        rel = str(file_path.resolve().relative_to(photos_root.resolve())).replace("\\", "/")
+    except ValueError:
+        rel = str(file_path).replace("\\", "/")
+    if rel.startswith(f"{year}/") or f"/{year}/" in f"/{rel}/":
+        return True
+    if rel.startswith(f"{year}年/") or f"{year}年" in rel:
+        return True
+    if file_path.stem.startswith(year):
+        return True
+    return False
+
+
 def is_image_file(path: Path) -> bool:
     """判断文件是否为支持的图片格式。"""
     return path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS
