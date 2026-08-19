@@ -213,7 +213,7 @@ function showErrors(row) {
 .error-item {
   padding: 0.75rem;
   margin-bottom: 0.5rem;
-  background: #3a1a1a;
+  background: #fdecec;
   border-radius: 6px;
   color: #f56c6c;
   font-family: monospace;

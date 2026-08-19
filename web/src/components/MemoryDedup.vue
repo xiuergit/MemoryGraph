@@ -648,7 +648,7 @@ onMounted(loadYears)
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
-  background: var(--bg, #111);
+  background: var(--panel);
 }
 
 .photo-card.keep {
@@ -679,7 +679,7 @@ onMounted(loadYears)
 
 .thumb {
   height: 110px;
-  background: #1a1a1a;
+  background: var(--thumb-bg);
   cursor: pointer;
   display: flex;
   align-items: center;

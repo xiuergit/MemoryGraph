@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -30,8 +33,13 @@ DEFAULT_TIMEZONE = "Asia/Shanghai"
 _GRID_DECIMALS = 2
 # v2：缓存存整日 hourly，按拍摄小时取状况
 _CACHE_VERSION = "2"
-_MIN_REQUEST_INTERVAL_SEC = 0.15
+# 免费档约 600/分钟，但 archive 加权更严；Desk 线程池并发时更要串行
+_MIN_REQUEST_INTERVAL_SEC = 0.4
+_FETCH_RETRIES = 3
+_CACHE_LOCK = threading.Lock()
+_mem_cache: dict[str, dict[str, Any]] | None = None
 _last_request_at = 0.0
+_backoff_until = 0.0
 
 # WMO Weather interpretation codes → 中文
 _WMO_CONDITION: dict[int, str] = {
@@ -252,31 +260,95 @@ def _as_optional_float(value: Any) -> float | None:
         return None
 
 
-def _load_cache() -> dict[str, dict[str, Any]]:
-    if not WEATHER_CACHE_FILE.exists():
+def _parse_cache_text(text: str) -> dict[str, dict[str, Any]] | None:
+    """解析缓存；并发写坏成两段 JSON 时尽量保住第一份。"""
+    raw = (text or "").strip()
+    if not raw:
         return {}
     try:
-        data = json.loads(WEATHER_CACHE_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return {str(k): v for k, v in data.items() if isinstance(v, dict)}
-    except (json.JSONDecodeError, OSError) as exc:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            data, _end = json.JSONDecoder().raw_decode(raw)
+        except json.JSONDecodeError:
+            return None
+        logger.warning("weather 缓存有截断/拼接，已保留第一份完整 JSON")
+    if isinstance(data, dict):
+        return {str(k): v for k, v in data.items() if isinstance(v, dict)}
+    return None
+
+
+def _load_cache() -> dict[str, dict[str, Any]]:
+    global _mem_cache
+    if _mem_cache is not None:
+        return _mem_cache
+    if not WEATHER_CACHE_FILE.exists():
+        _mem_cache = {}
+        return _mem_cache
+    try:
+        text = WEATHER_CACHE_FILE.read_text(encoding="utf-8")
+    except OSError as exc:
         logger.warning("读取 weather 缓存失败: %s", exc)
-    return {}
+        _mem_cache = {}
+        return _mem_cache
+    parsed = _parse_cache_text(text)
+    if parsed is None:
+        logger.warning("读取 weather 缓存失败: JSON 损坏，将重建")
+        _mem_cache = {}
+        return _mem_cache
+    _mem_cache = parsed
+    return _mem_cache
 
 
 def _save_cache(cache: dict[str, dict[str, Any]]) -> None:
+    global _mem_cache
+    _mem_cache = cache
     WEATHER_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    WEATHER_CACHE_FILE.write_text(
-        json.dumps(cache, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    payload = json.dumps(cache, ensure_ascii=False, indent=2) + "\n"
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=".weather_cache.",
+        suffix=".tmp",
+        dir=str(WEATHER_CACHE_FILE.parent),
     )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_name, WEATHER_CACHE_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+
+
+def load_weather_cache() -> dict[str, dict[str, Any]]:
+    with _CACHE_LOCK:
+        return _load_cache()
+
+
+def save_weather_cache(cache: dict[str, dict[str, Any]]) -> None:
+    with _CACHE_LOCK:
+        _save_cache(cache)
+
+
+def _note_backoff(seconds: float) -> None:
+    global _backoff_until
+    _backoff_until = max(_backoff_until, time.monotonic() + seconds)
 
 
 def _throttle() -> None:
     global _last_request_at
-    elapsed = time.monotonic() - _last_request_at
-    if elapsed < _MIN_REQUEST_INTERVAL_SEC:
-        time.sleep(_MIN_REQUEST_INTERVAL_SEC - elapsed)
+    now = time.monotonic()
+    wait = max(
+        _MIN_REQUEST_INTERVAL_SEC - (now - _last_request_at),
+        _backoff_until - now,
+        0.0,
+    )
+    if wait > 0:
+        time.sleep(wait)
     _last_request_at = time.monotonic()
 
 
@@ -337,13 +409,52 @@ def _fetch_day_bundle(
         "timezone": timezone,
     }
     url = f"{ARCHIVE_URL}?{urllib.parse.urlencode(params)}"
-    _throttle()
     request = urllib.request.Request(url, headers={"User-Agent": "MemoryGraph/weather"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
-        logger.warning("Open-Meteo 请求失败 %s: %s", date, exc)
+    payload: Any = None
+    last_exc: BaseException | None = None
+    for attempt in range(_FETCH_RETRIES + 1):
+        _throttle()
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            try:
+                exc.read()
+            except OSError:
+                pass
+            if exc.code == 429:
+                delay = min(20.0, 4.0 * (2 ** attempt))
+                logger.warning(
+                    "Open-Meteo 限流 429 %s，%.0f 秒后重试（%d/%d）",
+                    date,
+                    delay,
+                    attempt + 1,
+                    _FETCH_RETRIES + 1,
+                )
+                _note_backoff(delay)
+                continue
+            logger.warning("Open-Meteo 请求失败 %s: %s", date, exc)
+            return None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            delay = min(12.0, 2.0 * (2 ** attempt))
+            logger.warning(
+                "Open-Meteo 请求失败 %s: %s；%.0f 秒后重试（%d/%d）",
+                date,
+                exc,
+                delay,
+                attempt + 1,
+                _FETCH_RETRIES + 1,
+            )
+            _note_backoff(delay)
+            continue
+        except json.JSONDecodeError as exc:
+            logger.warning("Open-Meteo 请求失败 %s: %s", date, exc)
+            return None
+    else:
+        logger.warning("Open-Meteo 请求失败 %s: %s", date, last_exc)
         return None
 
     daily = payload.get("daily") or {}
@@ -395,23 +506,41 @@ def _get_day_bundle(
     timezone: str = DEFAULT_TIMEZONE,
     cache: dict[str, dict[str, Any]] | None = None,
     persist_cache: bool = True,
+    allow_fetch: bool = True,
 ) -> dict[str, Any] | None:
     key = weather_cache_key(date, lat, lon)
-    own_cache = cache is None
-    store = _load_cache() if own_cache else cache
-    assert store is not None
+    _ = cache
 
-    bundle = store.get(key) if _is_day_bundle(store.get(key)) else None
+    # 列表路径带超时：若旧请求仍占着锁，也不要把事件页卡死
+    timeout = None if allow_fetch else 0.3
+    acquired = (
+        _CACHE_LOCK.acquire()
+        if timeout is None
+        else _CACHE_LOCK.acquire(timeout=timeout)
+    )
+    if not acquired:
+        return None
+    try:
+        store = _load_cache()
+        bundle = store.get(key) if _is_day_bundle(store.get(key)) else None
+        if bundle is not None or not allow_fetch:
+            return bundle
+    finally:
+        _CACHE_LOCK.release()
+
+    bundle = _fetch_day_bundle(lat, lon, date, timezone=timezone)
     if bundle is None:
-        bundle = _fetch_day_bundle(lat, lon, date, timezone=timezone)
-        if bundle is None:
-            return None
+        return None
+
+    with _CACHE_LOCK:
+        store = _load_cache()
+        existing = store.get(key) if _is_day_bundle(store.get(key)) else None
+        if existing is not None:
+            return existing
         store[key] = bundle
-        if persist_cache and own_cache:
+        if persist_cache:
             _save_cache(store)
-        elif persist_cache and cache is not None:
-            _save_cache(cache)
-    return bundle
+        return bundle
 
 
 def resolve_weather(
@@ -421,6 +550,7 @@ def resolve_weather(
     timezone: str = DEFAULT_TIMEZONE,
     cache: dict[str, dict[str, Any]] | None = None,
     persist_cache: bool = True,
+    allow_fetch: bool = True,
 ) -> Weather | None:
     """按坐标 + 拍摄时刻解析天气；同日同格缓存整日 hourly，状况取拍摄小时。"""
     parsed = parse_coords(coords)
@@ -436,6 +566,7 @@ def resolve_weather(
         timezone=timezone,
         cache=cache,
         persist_cache=persist_cache,
+        allow_fetch=allow_fetch,
     )
     if bundle is None:
         return None
@@ -449,6 +580,7 @@ def resolve_daytime_weather(
     timezone: str = DEFAULT_TIMEZONE,
     cache: dict[str, dict[str, Any]] | None = None,
     persist_cache: bool = True,
+    allow_fetch: bool = True,
 ) -> Weather | None:
     """事件列表用：按拍摄日白天众数（9–17 点），同日同城不因时段拆成多种天气。"""
     parsed = parse_coords(coords)
@@ -463,6 +595,7 @@ def resolve_daytime_weather(
         timezone=timezone,
         cache=cache,
         persist_cache=persist_cache,
+        allow_fetch=allow_fetch,
     )
     if bundle is None:
         return None
@@ -520,7 +653,7 @@ def backfill_weather_folder(
         logger.error("memory 目录不存在: %s", memory_path)
         return stats
 
-    cache = _load_cache()
+    cache = load_weather_cache()
     json_files = sorted(memory_path.glob("*.json"))
     stats.total = 0
 
@@ -561,7 +694,7 @@ def backfill_weather_folder(
                 continue
             stats.updated += 1
             if stats.updated % 50 == 0:
-                _save_cache(cache)
+                save_weather_cache(cache)
                 logger.info("天气补全进度: %d 张…", stats.updated)
         elif result == "skipped":
             stats.skipped += 1
@@ -569,7 +702,7 @@ def backfill_weather_folder(
             stats.failed += 1
             stats.failed_files.append(json_path.name)
 
-    _save_cache(cache)
+    save_weather_cache(cache)
     logger.info(
         "天气补全统计: 扫描=%d, 更新=%d, 跳过=%d, 失败=%d（缓存 %s）",
         stats.total,

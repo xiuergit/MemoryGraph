@@ -455,7 +455,7 @@ onMounted(() => {
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--bg, #111);
+  background: var(--panel);
 }
 
 .ref-thumb {

@@ -1520,7 +1520,7 @@ onMounted(async () => {
 }
 
 .weather-line {
-  color: #5b8def;
+  color: var(--accent);
 }
 
 .home-tag {
@@ -1659,7 +1659,7 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 5px;
   overflow: hidden;
-  background: #121820;
+  background: var(--thumb-bg);
 }
 
 .photo-card.selected {
@@ -1739,7 +1739,7 @@ onMounted(async () => {
 }
 
 .photo-detail-link {
-  color: #7eb6e8;
+  color: var(--accent);
 }
 
 .photo-delete-link {

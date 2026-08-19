@@ -94,12 +94,14 @@ function openDetail(photoId) {
   padding: 1.5rem 2rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
+  box-shadow: 0 1px 0 rgba(26, 35, 50, 0.03);
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
+  color: var(--text-strong);
 }
 
 .app-header p {

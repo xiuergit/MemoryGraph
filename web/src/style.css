@@ -1,40 +1,47 @@
 :root {
-  --bg: #0f1419;
-  --panel: #1a2332;
-  --panel-2: #1f2938;
-  --border: #2d3a4f;
-  --text: #e7ecf3;
-  --text-strong: #f5f7fa;
-  --muted: #8b9cb3;
-  --accent: #5b9fd4;
-  --accent-hover: #7ab3e0;
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --panel-2: #eef2f6;
+  --border: #d7dee8;
+  --text: #3d4a5c;
+  --text-strong: #1a2332;
+  --muted: #6b7c91;
+  --accent: #2f7cc0;
+  --accent-hover: #2468a6;
+  --thumb-bg: #e6ebf2;
+  --table-header: #eef2f7;
+  --table-hover: #e7f1fb;
+  --table-current: #d9ebf8;
+  --shadow: 0 8px 28px rgba(26, 35, 50, 0.12);
 
-  /* Element Plus 深色主题（须在 element-plus/dist/index.css 之后加载本文件） */
+  color-scheme: light;
+
+  /* Element Plus 浅色主题（须在 element-plus/dist/index.css 之后加载本文件） */
   --el-bg-color: var(--panel);
   --el-bg-color-page: var(--bg);
   --el-bg-color-overlay: var(--panel);
   --el-fill-color: var(--panel-2);
-  --el-fill-color-light: var(--panel-2);
-  --el-fill-color-lighter: #243044;
-  --el-fill-color-extra-light: #2a3548;
-  --el-fill-color-dark: #243044;
-  --el-fill-color-darker: #1f2938;
+  --el-fill-color-light: #f7f9fb;
+  --el-fill-color-lighter: #f0f4f8;
+  --el-fill-color-extra-light: #e8eef5;
+  --el-fill-color-dark: #e2e8f0;
+  --el-fill-color-darker: #d5dee8;
   --el-fill-color-blank: var(--panel);
   --el-text-color-primary: var(--text-strong);
   --el-text-color-regular: var(--text);
-  --el-text-color-secondary: #b8c5d6;
-  --el-text-color-placeholder: #7a8ba3;
+  --el-text-color-secondary: #5c6b7e;
+  --el-text-color-placeholder: #8a9aaf;
   --el-text-color-disabled: #9aa8bc;
   --el-border-color: var(--border);
   --el-border-color-light: var(--border);
-  --el-border-color-lighter: var(--border);
-  --el-border-color-extra-light: #3a4a63;
-  --el-disabled-bg-color: #243044;
+  --el-border-color-lighter: #e4eaf1;
+  --el-border-color-extra-light: #edf1f6;
+  --el-disabled-bg-color: #eef2f6;
   --el-disabled-text-color: #9aa8bc;
   --el-disabled-border-color: var(--border);
   --el-dialog-bg-color: var(--panel);
-  --el-dialog-box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --el-mask-color: rgba(0, 0, 0, 0.55);
+  --el-dialog-box-shadow: var(--shadow);
+  --el-mask-color: rgba(26, 35, 50, 0.35);
   --el-color-primary: var(--accent);
 }
 
@@ -58,10 +65,10 @@ body {
 .el-table {
   --el-table-bg-color: var(--panel);
   --el-table-tr-bg-color: var(--panel);
-  --el-table-header-bg-color: #243044;
-  --el-table-row-hover-bg-color: #2a3a52;
-  --el-table-current-row-bg-color: #2f4560;
-  --el-table-header-text-color: #c5d0de;
+  --el-table-header-bg-color: var(--table-header);
+  --el-table-row-hover-bg-color: var(--table-hover);
+  --el-table-current-row-bg-color: var(--table-current);
+  --el-table-header-text-color: var(--text);
   --el-table-text-color: var(--text-strong);
   --el-table-border-color: var(--border);
   background-color: var(--panel) !important;
@@ -75,8 +82,8 @@ body {
 }
 
 .el-table th.el-table__cell {
-  background-color: #243044 !important;
-  color: #c5d0de !important;
+  background-color: var(--table-header) !important;
+  color: var(--text) !important;
   border-bottom: 1px solid var(--border) !important;
   font-weight: 600;
 }
@@ -93,11 +100,11 @@ body {
 
 .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell,
 .el-table__body tr.hover-row > td.el-table__cell {
-  background-color: #2a3a52 !important;
+  background-color: var(--table-hover) !important;
 }
 
 .el-table__body tr:hover > td.el-table__cell {
-  background-color: #2a3a52 !important;
+  background-color: var(--table-hover) !important;
 }
 
 .el-table__body tr:hover > td.el-table__cell .cell,
@@ -105,11 +112,11 @@ body {
 .el-table__body tr:hover > td.el-table__cell .cell-strong,
 .el-table__body tr:hover > td.el-table__cell .cell-text,
 .el-table__body tr:hover > td.el-table__cell .cell-mono {
-  color: #ffffff !important;
+  color: var(--text-strong) !important;
 }
 
 .el-table__body tr.current-row > td.el-table__cell {
-  background-color: #2f4560 !important;
+  background-color: var(--table-current) !important;
 }
 
 .el-table .cell {
@@ -128,7 +135,7 @@ body {
 }
 
 .el-tabs--border-card > .el-tabs__header {
-  background: #243044;
+  background: var(--table-header);
   border-bottom-color: var(--border);
 }
 
@@ -206,7 +213,7 @@ body {
 .el-input__wrapper,
 .el-textarea__inner,
 .el-select__wrapper {
-  background: var(--bg) !important;
+  background: var(--panel) !important;
   box-shadow: 0 0 0 1px var(--border) inset !important;
 }
 
@@ -222,7 +229,7 @@ body {
 
 .el-input.is-disabled .el-input__wrapper,
 .el-textarea.is-disabled .el-textarea__inner {
-  background: #243044 !important;
+  background: var(--el-disabled-bg-color) !important;
   box-shadow: 0 0 0 1px var(--border) inset !important;
 }
 
@@ -261,6 +268,13 @@ body {
   --el-button-primary-border-color: var(--accent);
 }
 
+.el-button--primary {
+  --el-button-bg-color: var(--accent);
+  --el-button-border-color: var(--accent);
+  --el-button-hover-bg-color: var(--accent-hover);
+  --el-button-hover-border-color: var(--accent-hover);
+}
+
 .el-button.is-link {
   --el-button-text-color: var(--accent);
 }
@@ -270,23 +284,23 @@ body {
 }
 
 .el-tag.el-tag--info {
-  background: rgba(91, 159, 212, 0.2);
-  color: #9ec9ef;
+  background: rgba(47, 124, 192, 0.12);
+  color: #2a6aa3;
 }
 
 .el-tag.el-tag--success {
-  background: rgba(103, 194, 58, 0.18);
-  color: #95d475;
+  background: rgba(103, 194, 58, 0.14);
+  color: #3d8b3a;
 }
 
 .el-tag.el-tag--warning {
-  background: rgba(230, 162, 60, 0.2);
-  color: #f3c27a;
+  background: rgba(230, 162, 60, 0.16);
+  color: #b07820;
 }
 
 .el-tag.el-tag--danger {
-  background: rgba(245, 108, 108, 0.18);
-  color: #f89898;
+  background: rgba(245, 108, 108, 0.14);
+  color: #c45656;
 }
 
 .el-empty__text {
@@ -325,4 +339,24 @@ body {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
   color: #fff !important;
+}
+
+/* ── Dropdown / Loading ── */
+.el-dropdown-menu {
+  background: var(--panel) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.el-dropdown-menu__item {
+  color: var(--text) !important;
+}
+
+.el-dropdown-menu__item:not(.is-disabled):hover,
+.el-dropdown-menu__item:not(.is-disabled):focus {
+  background: var(--panel-2) !important;
+  color: var(--accent) !important;
+}
+
+.el-loading-mask {
+  background-color: rgba(244, 246, 249, 0.72) !important;
 }
