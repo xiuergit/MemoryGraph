@@ -12,17 +12,25 @@ from dataclasses import asdict
 from io import BytesIO
 from pathlib import Path
 from typing import Any, List, Optional
+from urllib.parse import quote
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 from jsonschema import validate as jsonschema_validate, ValidationError
 from PIL import Image, ImageOps
 
 from hub.shared.agent import ask as memory_ask
+from hub.shared.ask_checklist import (
+    add_item as checklist_add_item,
+    checklist_stats,
+    delete_item as checklist_delete_item,
+    load_checklist,
+    update_item as checklist_update_item,
+)
 from hub.shared.config import (
     DATA_DIR,
     FACES_DIR,
@@ -44,6 +52,8 @@ from hub.shared.index_db import (
     sync_memory_dir,
 )
 from hub.shared.location_cluster import regeocode_locations_from_memory
+from hub.shared.media_ingest import IngestError, ingest_photo_bytes
+from hub.shared.media_describe import DescribeError, describe_media
 from hub.shared.tool_job import finish as tool_job_finish
 from hub.shared.tool_job import is_cancelled as tool_job_is_cancelled
 from hub.shared.tool_job import request_cancel as tool_job_request_cancel
@@ -58,12 +68,14 @@ from hub.shared.memory_edit import (
     batch_apply_people,
     batch_apply_timestamp,
     update_photo_fields,
+    update_transcript,
 )
 from hub.shared.memory_stats import (
     collect_memory_stats,
     collect_face_registry_stats,
     collect_sqlite_stats,
 )
+from hub.shared.media_pending import media_pending_report
 from hub.shared.photo_delete import (
     BatchDeleteResult,
     DeletePhotoResult,
@@ -72,6 +84,17 @@ from hub.shared.photo_delete import (
     delete_photo_record,
 )
 from hub.shared.photo_links import enrich_photo_dict
+from hub.shared.print_outbox import create_print_outbox
+from hub.shared.story_circle import (
+    SUMMER_2026_STORY_CIRCLE,
+    SUMMER_SHARE_SLOT_TITLES,
+    build_nodes_from_photos,
+    build_story_circle_nodes,
+    load_story_job,
+    nodes_as_dicts,
+    render_story_circle_html,
+    save_story_job,
+)
 from hub.shared.geocode import (
     GEOCODE_CACHE_FILE,
     cache_version,
@@ -299,6 +322,66 @@ def api_media(path: str = Query(...)) -> FileResponse:
     )
 
 
+@app.post("/api/media/ingest")
+async def api_media_ingest(
+    file: UploadFile = File(..., description="原图像素文件"),
+    local_id: str = Form(..., description="客户端稳定 id"),
+    mutation_id: str = Form("", description="可选幂等键"),
+    device_id: str = Form("iphone"),
+    captured_at: str = Form("", description="拍摄/捕获时间；无 EXIF 时用于 YYYY/MM"),
+    queue_analyze: bool = Form(
+        True,
+        description="落盘后异步排队 photo2json（不阻塞本请求）",
+    ),
+) -> dict[str, Any]:
+    """手机 Outbox media.ingest：原图 → photos/YYYY/MM/ob_<8>_<stem>.ext。
+
+    回执 status=accepted|duplicate|conflict；SHA-256 去重复用 photo_id。
+    合同：docs/mobile-outbox.md §5–§6。
+    """
+    raw = await file.read()
+    try:
+        receipt = ingest_photo_bytes(
+            raw,
+            local_id=local_id,
+            filename=file.filename,
+            content_type=file.content_type or "",
+            mutation_id=mutation_id,
+            device_id=device_id,
+            captured_at=captured_at,
+            queue_analyze=queue_analyze,
+        )
+    except IngestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return receipt.as_dict()
+
+
+class MediaDescribeRequest(BaseModel):
+    photo_id: str = Field(..., min_length=1, description="已落地的 memory id")
+    user_note: str = ""
+    mutation_id: str = Field("", description="可选幂等键")
+    device_id: str = ""
+
+
+@app.post("/api/media/describe")
+def api_media_describe(body: MediaDescribeRequest) -> dict[str, Any]:
+    """手机 Outbox media.describe：按 photo_id 写 user_note + manual_note。
+
+    回执 status=accepted|conflict；带 mutation_id 时同载荷可重放。
+    合同：docs/mobile-outbox.md §3 / §6；阶段 B。
+    """
+    try:
+        receipt = describe_media(
+            body.photo_id.strip(),
+            body.user_note,
+            mutation_id=body.mutation_id,
+            device_id=body.device_id,
+        )
+    except DescribeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return receipt.as_dict()
+
+
 class OpenRequest(BaseModel):
     path: str
     reveal: bool = False
@@ -315,22 +398,326 @@ def api_open(body: OpenRequest) -> dict[str, str]:
     return {"status": "ok", "path": str(target)}
 
 
+class PrintOutboxRequest(BaseModel):
+    photo_ids: List[str] = Field(..., min_length=1)
+    captions: dict[str, str] | None = None
+    open_browser: bool = True
+
+
+@app.post("/api/print-outbox")
+def api_print_outbox(body: PrintOutboxRequest) -> dict[str, Any]:
+    """把已选照片拷到剪纸原图/_mg_*，返回排版深链（不共享记忆全库）。"""
+    try:
+        result = create_print_outbox(
+            body.photo_ids,
+            captions=body.captions,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"写入剪纸作业失败：{exc}") from exc
+
+    if body.open_browser and result.studio_url:
+        subprocess.run(["open", result.studio_url], check=False)
+
+    return {
+        "job_id": result.job_id,
+        "theme": result.theme,
+        "folder": result.folder,
+        "studio_url": result.studio_url,
+        "copied": [asdict(item) for item in result.copied],
+        "failed": result.failed,
+        "copied_count": len(result.copied),
+        "failed_count": len(result.failed),
+        "pruned": result.pruned,
+    }
+
+
+class StoryCircleRequest(BaseModel):
+    event_ids: List[str] | None = None
+    photo_ids: List[str] | None = None
+    titles: dict[str, str] | None = None
+    title: str = "面面的开心暑假"
+    subtitle: str = "和同学一起交的暑假快乐事 · 顺着箭头讲"
+    layout: str = "snake"
+    # True：按勾选顺序套用暑假六格短标题（须正好 6 张）
+    use_summer_slots: bool = False
+    open_browser: bool = False
+
+
+def _story_circle_event_ids(raw: List[str] | None) -> list[str]:
+    if raw:
+        return [eid.strip() for eid in raw if eid and eid.strip()]
+    return list(SUMMER_2026_STORY_CIRCLE)
+
+
+def _story_layout(raw: str) -> str:
+    return "circle" if raw == "circle" else "snake"
+
+
+def _titles_for_summer_slots(photo_ids: list[str]) -> dict[str, str]:
+    if len(photo_ids) != len(SUMMER_SHARE_SLOT_TITLES):
+        raise ValueError(
+            f"暑假六格请正好选 {len(SUMMER_SHARE_SLOT_TITLES)} 张"
+            f"（当前 {len(photo_ids)} 张）。顺序："
+            + " → ".join(SUMMER_SHARE_SLOT_TITLES)
+        )
+    return {pid: SUMMER_SHARE_SLOT_TITLES[i] for i, pid in enumerate(photo_ids)}
+
+
+@app.get("/api/story-circle/slots")
+def api_story_circle_slots() -> dict[str, Any]:
+    """暑假分享页格子标题（自选图时按勾选顺序填入）。"""
+    return {
+        "titles": list(SUMMER_SHARE_SLOT_TITLES),
+        "count": len(SUMMER_SHARE_SLOT_TITLES),
+        "hint": "按讲述顺序勾选照片，第 1 张=骑车，第 2 张=玩水……",
+    }
+
+
+@app.get("/api/story-circle")
+def api_story_circle_meta(
+    preset: str = Query("summer2026", description="summer2026 或空"),
+    event_ids: str = Query("", description="逗号分隔 event_id，优先于 preset"),
+    photo_ids: str = Query("", description="逗号分隔 photo_id（自选图，优先）"),
+) -> dict[str, Any]:
+    """分享页节点元数据。"""
+    pids = [x.strip() for x in photo_ids.split(",") if x.strip()]
+    ids = [x.strip() for x in event_ids.split(",") if x.strip()]
+    try:
+        if pids:
+            nodes = build_nodes_from_photos(pids)
+        else:
+            if not ids and preset == "summer2026":
+                ids = list(SUMMER_2026_STORY_CIRCLE)
+            nodes = build_story_circle_nodes(ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "title": "面面的开心暑假",
+        "count": len(nodes),
+        "nodes": nodes_as_dicts(nodes),
+        "html_path": "/story-circle",
+    }
+
+
+@app.get("/story-circle", response_class=HTMLResponse)
+def api_story_circle_page(
+    preset: str = Query("summer2026"),
+    event_ids: str = Query(""),
+    photo_ids: str = Query(""),
+    job: str = Query(""),
+    title: str = Query("面面的开心暑假"),
+    subtitle: str = Query("和同学一起交的暑假快乐事 · 顺着箭头讲"),
+    layout: str = Query("snake"),
+) -> HTMLResponse:
+    """A4 分享页（默认蛇形大图；浏览器打开后点打印）。"""
+    lay = _story_layout(layout)
+    try:
+        if job.strip():
+            nodes, title, subtitle, lay = load_story_job(job.strip())
+        else:
+            pids = [x.strip() for x in photo_ids.split(",") if x.strip()]
+            ids = [x.strip() for x in event_ids.split(",") if x.strip()]
+            if pids:
+                nodes = build_nodes_from_photos(pids)
+            else:
+                if not ids and preset == "summer2026":
+                    ids = list(SUMMER_2026_STORY_CIRCLE)
+                nodes = build_story_circle_nodes(ids)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    html_doc = render_story_circle_html(
+        nodes,
+        page_title=title,
+        subtitle=subtitle,
+        layout=lay,  # type: ignore[arg-type]
+    )
+    return HTMLResponse(html_doc)
+
+
+@app.post("/api/story-circle/from-photos")
+def api_story_circle_from_photos(body: StoryCircleRequest) -> dict[str, Any]:
+    """列表勾选照片 → 蛇形分享页（合照/同学均可）。"""
+    pids = [str(x).strip() for x in (body.photo_ids or []) if str(x).strip()]
+    if not pids:
+        raise HTTPException(status_code=400, detail="请选择照片 photo_ids")
+    lay = _story_layout(body.layout)
+    try:
+        titles = dict(body.titles or {})
+        if body.use_summer_slots:
+            titles = _titles_for_summer_slots(pids)
+        nodes = build_nodes_from_photos(pids, titles=titles or None)
+        job_id = save_story_job(
+            nodes,
+            page_title=body.title,
+            subtitle=body.subtitle,
+            layout=lay,  # type: ignore[arg-type]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    path = f"/story-circle?job={quote(job_id)}"
+    return {
+        "job_id": job_id,
+        "path": path,
+        "count": len(nodes),
+        "nodes": nodes_as_dicts(nodes),
+    }
+
+
+@app.post("/api/story-circle/open")
+def api_story_circle_open(body: StoryCircleRequest) -> dict[str, Any]:
+    """事件预设或自选图 → 分享页 path。"""
+    lay = _story_layout(body.layout)
+    pids = [str(x).strip() for x in (body.photo_ids or []) if str(x).strip()]
+    try:
+        if pids:
+            nodes = build_nodes_from_photos(pids, titles=body.titles)
+            job_id = save_story_job(
+                nodes,
+                page_title=body.title,
+                subtitle=body.subtitle,
+                layout=lay,  # type: ignore[arg-type]
+            )
+            path = f"/story-circle?job={quote(job_id)}"
+        else:
+            ids = _story_circle_event_ids(body.event_ids)
+            nodes = build_story_circle_nodes(ids)
+            q = "&".join(
+                [
+                    f"title={quote(body.title)}",
+                    f"subtitle={quote(body.subtitle)}",
+                    f"event_ids={quote(','.join(ids))}",
+                    f"layout={quote(lay)}",
+                ]
+            )
+            path = f"/story-circle?{q}"
+            job_id = ""
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "job_id": job_id,
+        "path": path,
+        "count": len(nodes),
+        "nodes": nodes_as_dicts(nodes),
+    }
+
+
+class AskContext(BaseModel):
+    """上一轮问答上下文（轻量追问，无长期 session）。"""
+
+    last_intent: str = ""
+    intent: str = ""
+    last_params: dict[str, Any] = Field(default_factory=dict)
+    person: str = ""
+    period_label: str = ""
+    day_from: str = ""
+    day_to: str = ""
+    year: str = ""
+    season: str = ""
+    holiday: str = ""
+    last_answer: str = ""
+    basis_summary: dict[str, Any] = Field(default_factory=dict)
+
+
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1)
+    context: AskContext | None = None
+
+
+class ChecklistAdd(BaseModel):
+    question: str = Field(..., min_length=1)
+    section: str = Field(default="自家补充")
+    intent_hint: str = Field(default="")
+
+
+# from __future__ import annotations 下，跨模型引用须 rebuild，否则 FastAPI 校验 body 500
+AskContext.model_rebuild()
+AskRequest.model_rebuild()
+ChecklistAdd.model_rebuild()
 
 
 @app.post("/api/ask")
 def api_ask(body: AskRequest) -> dict[str, Any]:
-    """记忆问答：返回模板/LLM 短答 + 结构化 facts（供 Vue 证据区渲染）。"""
-    result = memory_ask(body.question.strip(), photo_links=False)
+    """记忆问答：返回模板/LLM 短答 + 结构化 facts + 统一 evidence 合同。
+
+    可选 context：挂上一轮时段/意图，支持「依据是什么 / 开心吗 / 见了谁」。
+    evidence：media / events / stories ids，可追溯 JSON / 原片（见 docs/architecture.md）。
+    """
+    ctx = body.context.model_dump() if body.context is not None else None
+    result = memory_ask(body.question.strip(), photo_links=False, context=ctx)
     facts = dict(result.facts)
     facts.pop("_photo_links", None)
+    facts.pop("_evidence", None)
     return {
         "intent": result.intent,
         "answer": result.answer,
         "used_llm": result.used_llm,
         "facts": facts,
+        "evidence": result.evidence,
+        "follow_ups": result.follow_ups,
+        "context": result.turn_context,
     }
+
+
+@app.get("/api/ask/checklist")
+def api_ask_checklist() -> dict[str, Any]:
+    """问答错题本：未测 / 好了 / 没好（落盘 data/ask_checklist.json）。"""
+    data = load_checklist()
+    items = data.get("items") or []
+    return {
+        "schema_version": data.get("schema_version") or "1",
+        "stats": checklist_stats(items),
+        "items": items,
+    }
+
+
+@app.patch("/api/ask/checklist/{item_id}")
+def api_ask_checklist_patch(
+    item_id: str,
+    status: Optional[str] = Body(None, description="untested | pass | fail"),
+    note: Optional[str] = Body(None),
+) -> dict[str, Any]:
+    if status is None and note is None:
+        raise HTTPException(status_code=400, detail="status 或 note 至少提供一项")
+    try:
+        item = checklist_update_item(
+            item_id,
+            status=status,
+            note=note,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="条目不存在") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = load_checklist()
+    return {"item": item, "stats": checklist_stats(data.get("items") or [])}
+
+
+@app.post("/api/ask/checklist")
+def api_ask_checklist_add(body: ChecklistAdd) -> dict[str, Any]:
+    try:
+        item = checklist_add_item(
+            body.question,
+            section=body.section,
+            intent_hint=body.intent_hint,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = load_checklist()
+    return {"item": item, "stats": checklist_stats(data.get("items") or [])}
+
+
+@app.delete("/api/ask/checklist/{item_id}")
+def api_ask_checklist_delete(item_id: str) -> dict[str, Any]:
+    if not checklist_delete_item(item_id):
+        raise HTTPException(status_code=404, detail="条目不存在")
+    data = load_checklist()
+    return {"ok": True, "stats": checklist_stats(data.get("items") or [])}
 
 
 @app.get("/api/memory/artwork")
@@ -495,6 +882,36 @@ def api_events_list(
     }
 
 
+@app.get("/api/day-slice")
+def api_day_slice(
+    day: str,
+    person: str = "",
+    media_limit: int = 500,
+) -> dict[str, Any]:
+    """日历日切片（DaySlice），≠ outing 事件列表。
+
+    返回当日全部媒体（photo/video/audio）+ user_note + 同日 events + 相关 stories。
+    时间旅行应以此为底座；勿把 GET /api/events?day= 当成「这一天的全部记忆」。
+    """
+    from hub.shared.query import get_day_slice
+
+    day_key = (day or "").strip()
+    if len(day_key) < 4:
+        raise HTTPException(status_code=400, detail="day 须为 YYYY / YYYY-MM / YYYY-MM-DD")
+    conn = connect(MEMORY_DB)
+    init_db(conn)
+    try:
+        result = get_day_slice(
+            conn,
+            day_key,
+            person=person.strip(),
+            media_limit=max(1, min(int(media_limit or 500), 2000)),
+        )
+    finally:
+        conn.close()
+    return result
+
+
 @app.get("/api/events/locations")
 def api_events_locations(include_home: bool = True) -> dict[str, Any]:
     from hub.shared.events import list_event_locations
@@ -597,6 +1014,7 @@ def api_stories_list(
 @app.post("/api/stories")
 def api_stories_create(body: StoryBody) -> dict[str, Any]:
     from hub.shared.events import create_story
+    from hub.shared.story_upsert import StoryLinkError, StoryUpsertError
 
     conn = connect(MEMORY_DB)
     init_db(conn)
@@ -610,11 +1028,54 @@ def api_stories_create(body: StoryBody) -> dict[str, Any]:
             people=body.people,
             links=[link.model_dump() for link in body.links],
         )
+    except (StoryLinkError, StoryUpsertError) as exc:
+        conn.close()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         conn.close()
         raise HTTPException(status_code=500, detail=f"创建故事失败: {exc}") from exc
     conn.close()
     return {"status": "ok", "story": story}
+
+
+class StoryUpsertBody(BaseModel):
+    """手机 Outbox story.upsert：稳定 story_id 幂等建/改。"""
+
+    story_id: str = Field(..., min_length=1, description="客户端稳定 id，如 sty_+uuid")
+    title: str = Field(..., min_length=1)
+    body: str = ""
+    time_start: str = ""
+    time_end: str = ""
+    people: list[str] = Field(default_factory=list)
+    links: list[StoryLinkBody] = Field(default_factory=list)
+    mutation_id: str = Field("", description="可选幂等键")
+    device_id: str = ""
+
+
+@app.post("/api/stories/upsert")
+def api_stories_upsert(body: StoryUpsertBody) -> dict[str, Any]:
+    """story.upsert：空 links 可建草稿；photo links 仅已落地 photo_id。
+
+    回执 status=accepted|conflict；带 mutation_id 时同载荷可重放。
+    合同：docs/mobile-outbox.md §4。
+    """
+    from hub.shared.story_upsert import StoryUpsertError, upsert_story
+
+    try:
+        receipt = upsert_story(
+            story_id=body.story_id,
+            title=body.title,
+            body=body.body,
+            time_start=body.time_start,
+            time_end=body.time_end,
+            people=body.people,
+            links=[link.model_dump() for link in body.links],
+            mutation_id=body.mutation_id,
+            device_id=body.device_id,
+        )
+    except StoryUpsertError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return receipt.as_dict()
 
 
 @app.get("/api/stories/{story_id}")
@@ -633,6 +1094,7 @@ def api_story_detail(story_id: str) -> dict[str, Any]:
 @app.put("/api/stories/{story_id}")
 def api_story_update(story_id: str, body: StoryUpdateBody) -> dict[str, Any]:
     from hub.shared.events import update_story
+    from hub.shared.story_upsert import StoryLinkError, StoryUpsertError
 
     conn = connect(MEMORY_DB)
     init_db(conn)
@@ -650,6 +1112,9 @@ def api_story_update(story_id: str, body: StoryUpdateBody) -> dict[str, Any]:
     except KeyError as exc:
         conn.close()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (StoryLinkError, StoryUpsertError) as exc:
+        conn.close()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     conn.close()
     return {"status": "ok", "story": story}
 
@@ -1054,14 +1519,21 @@ def api_memory_list(
                 OR p.location LIKE ?
                 OR p.scene LIKE ?
                 OR p.source_path LIKE ?
+                OR p.device_id LIKE ?
                 OR EXISTS (
                     SELECT 1 FROM photo_people pp
                     WHERE pp.photo_id = p.photo_id AND pp.person_name LIKE ?
                 )
+                OR EXISTS (
+                    SELECT 1 FROM photo_terms pt
+                    WHERE pt.photo_id = p.photo_id AND pt.term LIKE ?
+                )
             )
             """
         )
-        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+        params.extend(
+            [pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern]
+        )
 
     def _row_to_item(row_dict: dict[str, Any], *, is_context: bool = False) -> dict[str, Any]:
         photo_path = Path(row_dict.get("source_path", "") or "")
@@ -1089,6 +1561,8 @@ def api_memory_list(
             "source_path": str(photo_path) if has_file else "",
             "folder": item_folder,
             "is_context": is_context,
+            "device_id": row_dict.get("device_id") or "",
+            "user_note": row_dict.get("user_note") or "",
         }
 
     select_sql = f"""
@@ -1107,6 +1581,12 @@ def api_memory_list(
             p.weather_temp_mean_c,
             p.weather_temp_min_c,
             p.weather_temp_max_c,
+            IFNULL(p.device_id, '') AS device_id,
+            (
+                SELECT pt.term FROM photo_terms pt
+                WHERE pt.photo_id = p.photo_id AND pt.term_type = 'user_note'
+                LIMIT 1
+            ) AS user_note,
             GROUP_CONCAT(DISTINCT pp.person_name) AS people
         FROM photos p
         LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
@@ -1315,6 +1795,14 @@ class MemoryUpdateRequest(BaseModel):
     emotion: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     timestamp: Optional[str] = None
+    user_note: Optional[str] = None
+
+
+class TranscriptUpdateRequest(BaseModel):
+    photo_id: str = Field(..., min_length=1)
+    text: str = ""
+    confirm: bool = Field(False, description="True=确认进问答；False=仅存草稿")
+    language: Optional[str] = None
 
 
 def _batch_edit_payload(updated: list[str], failed: list[tuple[str, str]]) -> dict[str, Any]:
@@ -1385,6 +1873,7 @@ def api_memory_update(body: MemoryUpdateRequest) -> dict[str, Any]:
             emotion=body.emotion,
             tags=body.tags,
             timestamp=body.timestamp,
+            user_note=body.user_note,
         )
     except MemoryEditError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1392,6 +1881,30 @@ def api_memory_update(body: MemoryUpdateRequest) -> dict[str, Any]:
     json_path = MEMORY_DIR / f"{body.photo_id.strip()}.json"
     data = json.loads(json_path.read_text(encoding="utf-8"))
     return {"status": "ok", "photo_id": body.photo_id.strip(), "data": data}
+
+
+@app.put("/api/memory/transcript")
+def api_memory_transcript(body: TranscriptUpdateRequest) -> dict[str, Any]:
+    """保存字幕草稿或确认进问答（仅 confirmed 进索引）。"""
+    try:
+        update_transcript(
+            body.photo_id.strip(),
+            body.text,
+            confirm=body.confirm,
+            language=body.language,
+        )
+    except MemoryEditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    json_path = MEMORY_DIR / f"{body.photo_id.strip()}.json"
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    tr = data.get("transcript") if isinstance(data.get("transcript"), dict) else {}
+    return {
+        "status": "ok",
+        "photo_id": body.photo_id.strip(),
+        "transcript": tr,
+        "data": data,
+    }
 
 
 @app.get("/api/memory/detail")
@@ -1842,7 +2355,25 @@ class ToolsProcessMediaBody(ToolsLimitBody):
 
 
 class ToolsProcessVideosBody(ToolsProcessMediaBody):
+    month: str = Field(
+        "",
+        description="可选：年份下的月/时段子目录，如 07、5-8；空=整年",
+    )
     no_ai: bool = Field(False, description="只写元数据，不抽帧、不跑视觉/人脸（--no-ai）")
+
+
+class ToolsBackfillTranscriptBody(ToolsLimitBody):
+    year: str = Field(..., min_length=4, description="只处理某年视频，如 2026")
+    month: str = Field(
+        "",
+        description="可选：年份下的月/时段子目录，如 10、5-8；空=整年",
+    )
+    force: bool = Field(False, description="覆盖已有 transcript")
+    min_duration_s: Optional[float] = Field(
+        None,
+        ge=0,
+        description="短于此秒数跳过；不传则用 ASR_MIN_DURATION_S",
+    )
 
 
 def _rebuild_pydantic_models_for_dynamic_load() -> None:
@@ -1858,6 +2389,7 @@ def _rebuild_pydantic_models_for_dynamic_load() -> None:
         FaceEnrollRequest,
         FacePersonUpdateBody,
         MemoryUpdateRequest,
+        TranscriptUpdateRequest,
         BatchPeopleByIdsRequest,
         BatchLocationByIdsRequest,
         ToolsLimitBody,
@@ -1865,6 +2397,7 @@ def _rebuild_pydantic_models_for_dynamic_load() -> None:
         ToolsBackfillFacesBody,
         ToolsProcessMediaBody,
         ToolsProcessVideosBody,
+        ToolsBackfillTranscriptBody,
     ):
         model_cls.model_rebuild(_types_namespace=ns)
 
@@ -1943,10 +2476,22 @@ def api_tools_backfill_faces(body: ToolsBackfillFacesBody) -> dict[str, Any]:
     return result
 
 
-def _run_tool_job(kind: str, year: str, runner) -> dict[str, Any]:
+def _run_tool_job(
+    kind: str,
+    year: str,
+    runner,
+    *,
+    pending_at_start: int = 0,
+    batch_limit: int | None = None,
+) -> dict[str, Any]:
     """在后台线程跑维护任务；同时只允许一个任务。"""
     try:
-        tool_job_start(kind, year=year)
+        tool_job_start(
+            kind,
+            year=year,
+            pending_at_start=pending_at_start,
+            batch_limit=batch_limit,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -1959,6 +2504,15 @@ def _run_tool_job(kind: str, year: str, runner) -> dict[str, Any]:
 
     threading.Thread(target=_worker, daemon=True).start()
     return {"status": "started", "job": tool_job_snapshot()}
+
+
+@app.get("/api/tools/media-pending")
+def api_tools_media_pending(
+    year: str = Query("", description="年份，如 2026"),
+    month: str = Query("", description="可选月/时段子目录，如 07、5-8；仅收窄视频待入库"),
+) -> dict[str, Any]:
+    """统计指定年份下尚未生成 JSON 的照片/视频数量。"""
+    return media_pending_report(year=year.strip(), month=month.strip())
 
 
 @app.get("/api/tools/job-status")
@@ -1980,6 +2534,10 @@ def api_tools_process_photos(body: ToolsProcessMediaBody) -> dict[str, Any]:
     """扫描 data/photos/ 图片，仅为尚无 JSON 的新图生成 photo JSON（已有/手改均跳过）。"""
     year = body.year.strip()
     sync_after = body.sync_after
+    limit = body.limit
+    from hub.shared.media_pending import count_pending_photos
+
+    pending_at_start = count_pending_photos(year=year).pending
 
     def runner() -> dict[str, Any]:
         from tools.photo2json.processor import process_folder
@@ -1992,6 +2550,7 @@ def api_tools_process_photos(body: ToolsProcessMediaBody) -> dict[str, Any]:
             MEMORY_DIR,
             skip_existing=True,
             year=year,
+            limit=limit,
             progress_cb=on_progress,
             should_cancel=tool_job_is_cancelled,
         )
@@ -2003,16 +2562,29 @@ def api_tools_process_photos(body: ToolsProcessMediaBody) -> dict[str, Any]:
             result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
         return result
 
-    return _run_tool_job("photos", year, runner)
+    return _run_tool_job(
+        "photos",
+        year,
+        runner,
+        pending_at_start=pending_at_start,
+        batch_limit=limit,
+    )
 
 
 @app.post("/api/tools/process-videos")
 def api_tools_process_videos(body: ToolsProcessVideosBody) -> dict[str, Any]:
     """扫描 data/photos/ 视频，仅为尚无 JSON 的新视频生成 video.v1 JSON（已有/手改均跳过）。"""
     year = body.year.strip()
+    month = body.month.strip()
+    if "/" in month or "\\" in month or month in (".", ".."):
+        month = ""
     sync_after = body.sync_after
     no_ai = body.no_ai
     limit = body.limit
+    from hub.shared.media_pending import count_pending_videos
+
+    pending_at_start = count_pending_videos(year=year, month=month).pending
+    job_scope = f"{year}/{month}" if year and month else year
 
     def runner() -> dict[str, Any]:
         from tools.video2json.processor import process_folder
@@ -2027,6 +2599,7 @@ def api_tools_process_videos(body: ToolsProcessVideosBody) -> dict[str, Any]:
             run_ai=not no_ai,
             limit=limit,
             year=year,
+            month=month,
             progress_cb=on_progress,
             should_cancel=tool_job_is_cancelled,
         )
@@ -2038,7 +2611,81 @@ def api_tools_process_videos(body: ToolsProcessVideosBody) -> dict[str, Any]:
             result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
         return result
 
-    return _run_tool_job("videos", year, runner)
+    return _run_tool_job(
+        "videos",
+        job_scope,
+        runner,
+        pending_at_start=pending_at_start,
+        batch_limit=limit,
+    )
+
+
+@app.post("/api/tools/backfill-transcript")
+def api_tools_backfill_transcript(body: ToolsBackfillTranscriptBody) -> dict[str, Any]:
+    """按年（可选月/时段）给已有 video JSON 补 ASR 字幕（本地 Whisper）。"""
+    year = body.year.strip()
+    if not year:
+        raise HTTPException(status_code=400, detail="请填写年份，如 2026")
+    month = body.month.strip()
+    if "/" in month or "\\" in month or month in (".", ".."):
+        month = ""
+    sync_after = body.sync_after
+    force = body.force
+    limit = body.limit
+    min_duration_s = body.min_duration_s
+    job_scope = f"{year}/{month}" if year and month else year
+
+    def runner() -> dict[str, Any]:
+        from hub.shared.video_transcript import backfill_transcript_folder
+
+        def on_progress(data: dict[str, object]) -> None:
+            mapped = dict(data)
+            if "updated" in mapped and "success" not in mapped:
+                mapped["success"] = mapped["updated"]
+            if mapped.get("phase") == "transcript":
+                mapped["phase"] = "process"
+            tool_job_update(**mapped)
+
+        try:
+            stats = backfill_transcript_folder(
+                MEMORY_DIR,
+                force=force,
+                limit=limit,
+                year=year,
+                month=month,
+                min_duration_s=min_duration_s,
+                progress_cb=on_progress,
+                should_cancel=tool_job_is_cancelled,
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "process": {
+                "success": stats.updated,
+                "skipped": stats.skipped,
+                "failed": stats.failed,
+                "total": stats.total,
+                "elapsed_seconds": stats.elapsed_seconds,
+                "failed_files": stats.failed_ids,
+            },
+            "transcript": asdict(stats),
+        }
+        if tool_job_is_cancelled():
+            return result
+        if sync_after:
+            tool_job_update(phase="sync", message="同步 SQLite 索引…")
+            result["sync"] = asdict(sync_memory_dir(MEMORY_DIR, MEMORY_DB))
+        return result
+
+    return _run_tool_job(
+        "transcript",
+        job_scope,
+        runner,
+        pending_at_start=0,
+        batch_limit=limit,
+    )
 
 
 def _rel(path: Path) -> str:

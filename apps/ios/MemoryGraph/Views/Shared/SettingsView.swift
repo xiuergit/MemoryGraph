@@ -8,6 +8,14 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                Toggle("家长模式（待上传 / 故事）", isOn: $settings.parentMode)
+            } header: {
+                Text("家长")
+            } footer: {
+                Text("打开后底部会出现「待上传」「故事」。选图拷贝进 App，回家同步到 Mac；不删系统相册。")
+            }
+
+            Section {
                 TextField("Mac 地址", text: $settings.host)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()

@@ -36,6 +36,14 @@ MEMORY_DIR = DATA_DIR / "memory"
 MEMORY_DB = DATA_DIR / "memorygraph.db"
 # 事件意义 / 故事真源（可跨机同步；SQLite 可由其重建）
 MEMORY_ANNOTATIONS_FILE = DATA_DIR / "memory_annotations.json"
+# 问答错题本（阶段 2 打磨；Desk/Vue 读写）
+ASK_CHECKLIST_FILE = DATA_DIR / "ask_checklist.json"
+# 手机 Outbox ingest：content_hash → photo_id 旁路表（见 docs/mobile-outbox.md）
+INGEST_REGISTRY_FILE = DATA_DIR / "ingest_registry.json"
+# 手机 Outbox media.describe：mutation_id 幂等旁路表
+DESCRIBE_REGISTRY_FILE = DATA_DIR / "describe_registry.json"
+# 手机 Outbox story.upsert：mutation_id 幂等旁路表
+STORY_UPSERT_REGISTRY_FILE = DATA_DIR / "story_upsert_registry.json"
 
 # 支持的图片扩展名（小写，含点号）
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
@@ -101,6 +109,14 @@ INSIGHTFACE_MODEL = os.environ.get("INSIGHTFACE_MODEL", "buffalo_s")
 # 模型目录，默认 ~/.insightface/models；可指向已手动下载的目录
 INSIGHTFACE_ROOT = os.environ.get("INSIGHTFACE_ROOT", "")
 
+# 剪纸台桥接：打印作业篮写入「原图/_mg_*」，深链打开排版页
+# PAPER_CUT_ROOT 指向剪纸仓库根（内含 原图/、成品/）
+_default_paper_cut = Path.home() / "Documents" / "剪纸"
+PAPER_CUT_ROOT = os.environ.get("PAPER_CUT_ROOT", str(_default_paper_cut))
+PAPER_CUT_STUDIO_URL = os.environ.get(
+    "PAPER_CUT_STUDIO_URL", "http://127.0.0.1:5273"
+)
+
 # CLIP 衣着兜底（脸不清时比对当日穿搭向量）
 OUTFIT_CACHE_DIR = DATA_DIR / "cache" / "outfit"
 CLIP_ENABLED = os.environ.get("CLIP_ENABLED", "true").lower() in ("1", "true", "yes")
@@ -117,7 +133,29 @@ CLIP_PRETRAINED = os.environ.get("CLIP_PRETRAINED", "openai")
 OUTFIT_MATCH_THRESHOLD = float(os.environ.get("OUTFIT_MATCH_THRESHOLD", "0.88"))
 OUTFIT_MAX_CONFIDENCE = float(os.environ.get("OUTFIT_MAX_CONFIDENCE", "0.72"))
 
-# HuggingFace 镜像（CLIP 权重下载）。国内默认 hf-mirror，海外可设 HF_ENDPOINT=
+# 视频/音频 ASR（唯一入口 hub/shared/asr.py；需本机 ffmpeg + faster-whisper）
+ASR_ENABLED = os.environ.get("ASR_ENABLED", "true").lower() in ("1", "true", "yes")
+ASR_MODEL = os.environ.get("ASR_MODEL", "small")
+ASR_LANGUAGE = os.environ.get("ASR_LANGUAGE", "zh")
+# VAD 易把童声/喇叭混响当静音截断，家庭视频默认关
+ASR_VAD_FILTER = os.environ.get("ASR_VAD_FILTER", "false").lower() in ("1", "true", "yes")
+ASR_BEAM_SIZE = int(os.environ.get("ASR_BEAM_SIZE", "5"))
+# 可选：给 Whisper 中文语境提示（留空则不用；可含家庭专名）
+ASR_INITIAL_PROMPT = os.environ.get(
+    "ASR_INITIAL_PROMPT",
+    "以下是普通话。常见人名：糖豆老师、面面。",
+)
+# 家庭专名纠错表：data/asr_glossary.json（可从 asr_glossary.example.json 复制）
+ASR_GLOSSARY_FILE = Path(
+    os.environ.get("ASR_GLOSSARY_FILE", str(DATA_DIR / "asr_glossary.json"))
+).expanduser()
+# 短于此秒数的视频默认跳过转写（Live Photo 等）
+ASR_MIN_DURATION_S = float(os.environ.get("ASR_MIN_DURATION_S", "3"))
+ASR_CACHE_DIR = DATA_DIR / "cache" / "asr_audio"
+
+# HuggingFace 镜像（CLIP / Whisper 权重）。国内默认 hf-mirror。
+# Xet 通道在镜像下常 401，默认关闭（须在 import huggingface_hub 之前生效）。
 _hf_endpoint = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com")
 if _hf_endpoint:
     os.environ.setdefault("HF_ENDPOINT", _hf_endpoint)
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")

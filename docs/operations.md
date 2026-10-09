@@ -31,6 +31,7 @@ memory_ask / Vue 问答（自然语言问答）
 | `data/memory/*.json` | 结构化记忆（唯一数据源） | ⚠️ 删了要重跑 photo2json |
 | `data/memorygraph.db` | 检索索引 | ✅ 随时 `sync` 重建 |
 | `data/memory_annotations.json` | 事件意义 / 故事 | ⚠️ 跨机必拷；`memory_events sync` 灌库 |
+| `data/ask_checklist.json` | 问答错题本（Vue「问答」） | ✅ 可删会按种子重建；跨机可拷 |
 | `data/.geocode_cache.json` | 高德地址缓存（**纠错真源**，v6 key） | ✅ 可删重建；日常在 Vue/CLI 改 |
 | `data/location_canonical.json` | 可选；合并别名（家附近「拆开 POI」时通常留空） | ✅ |
 | `data/.trash/` | Desk 删除的照片/JSON | ✅ 可恢复；彻底清空 `rm -rf data/.trash/` |
@@ -155,12 +156,21 @@ API 文档（逆地理编码）：https://lbs.amap.com/api/webservice/guide/api/
 
 ### 步骤 1：放入原图
 
-把从 iPhone 导出的照片放进 `data/photos/`，可按年分子目录，例如：
+把从 iPhone 导出的照片放进 `data/photos/`。  
+**新约定（向前）**：按**年/月**归位，便于批处理，也减少与日后手机 Outbox 上传撞名（见 [mobile-outbox.md](mobile-outbox.md) §5）：
+
+```
+data/photos/2026/09/IMG_3832.HEIC
+```
+
+历史习惯（仍有效、不强制迁移）按年即可，例如：
 
 ```
 data/photos/2025/IMG_3832.HEIC
 data/photos/2026/IMG_3855.HEIC
 ```
+
+手机回家上传落盘时文件名会带 `ob_` 前缀，与导出的 `IMG_*` 区分；`photo_id` 始终相对 `data/photos/` 整棵路径。
 
 支持格式（当前 `photo2json`）：`.jpg` `.jpeg` `.png` `.heic` `.heif`  
 

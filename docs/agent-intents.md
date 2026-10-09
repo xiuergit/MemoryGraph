@@ -2,7 +2,8 @@
 
 > 实现：`hub/shared/agent.py`（路由 + 模板） · `hub/shared/query.py`（查库）  
 > 入口：`python tools/memory_ask/main.py "你的问题"` · Desk `POST /api/ask` · Vue / iOS  
-> **阶段 2（当前）**：打磨路由与检索，少答非所问；清单见文末「阶段 2 目标」
+> **阶段 2（当前）**：打磨路由与检索，少答非所问；清单见文末「阶段 2 目标」  
+> **日常打勾**：Vue「问答」→ **错题本**（`data/ask_checklist.json`；说明见 [ask-checklist.md](ask-checklist.md)）
 
 ## 设计原则
 
@@ -22,9 +23,13 @@
 用户问题
     → route_intent()        正则路由，提取 person / age / term 等参数
     → gather_facts()        查 memorygraph.db，组装 facts JSON
-    → _template_answer()    模板回答（默认）
-    → _llm_answer()         可选：Ollama 润色（失败则仍用模板）
+    → build_evidence()      从 facts 抽出统一 evidence（media/event/story + media_type）
+    → _template_answer()    模板回答（默认；关键词/最近认媒体类型）
+    → _llm_answer()         可选：Ollama 润色（失败则仍用模板；锁 facts）
 ```
+
+Desk `POST /api/ask` 返回：`intent` / `answer` / `facts` / **`evidence`** / `follow_ups` / `context`。
+「依据是什么」读上一轮 `basis_summary`（含 media/event/story 样例 id）。见 [architecture.md](architecture.md) 证据合同。
 
 人物名从 `data/faces/registry.json` 读取。问句未写人名时：若档案里 **恰好一名 `role=child`**（当前为面面），或有效成员仅一人，则默认该人；全库统计（「一共多少张」）不默认。
 
@@ -36,7 +41,8 @@
 0b. `story_lookup` — 含「故事」
 0c. `person_artwork` — 画作 / 作品集
 0d. `person_home_timeline` — 住过哪 / 呆最久（家事件跨度）
-0e. `recent_outings` / `outings_at_place` / `outings_by_period` — 出门（含按年/季）
+0d2. **追问（有 `context`）** — `explain_basis` / `period_emotion` / `period_companions`（依据、开心吗、见了谁）
+0e. `recent_outings` / `outings_at_place` / `outings_by_period` / **`period_recap`** — 出门；`period_recap` = 时段出门 + 开心吗 + 见了谁
 1. `person_age_place_rank` — N 岁 + 去哪最多 / 待最久
 2. `library_stats` — 多少张 / 一共 / 统计
 3. `group_photos` — X和Y合影 / 合照有哪些
@@ -67,7 +73,7 @@
 | **触发** | 「出去玩」「出门玩了哪些」「最近出门」等 |
 | **参数** | `person`（可选）、`limit` |
 | **查库** | `events` 表（`is_home=0`），优先显示 `overlay.title` |
-| **回答** | 出门列表：日期·地点 / 备注标题、张数、人物 |
+| **回答** | 口语按天汇总（同 `outings_by_period`）；细节看证据区 |
 
 ```bash
 python tools/memory_events/main.py sync   # 需先聚合
@@ -80,25 +86,52 @@ python tools/memory_ask/main.py "最近出去玩了哪些"
 |----|------|
 | **触发** | 「住过哪」「搬过」「呆的时间最长」「哪个地方呆最久」等 |
 | **查库** | `events` 且 `is_home=1`，按地点聚合 `MIN(day)–MAX(day)` |
-| **回答** | 迁居时间线 + 年龄跨度；并点出日历跨度最长的住址 |
+| **回答** | 长期住址迁居时间线 + 年龄跨度；开场标明「家、不含出门酒店」；点出住得最久的一处 |
 
 ```bash
 python tools/memory_ask/main.py "面面在哪个地方呆的时间最长"
 python tools/memory_ask/main.py "面面住过哪些地方"
 ```
 
-### `outings_by_period` — 按年 / 季列出门
+### `outings_by_period` — 按年 / 季 / 节假日列出门
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 含年（2024年 / 去年 / 今年）或季（春夏秋冬）+ 出门/出去玩 |
-| **查库** | outing 事件，按 `day` 年前缀 + 可选月份过滤 |
-| **回答** | 该时段出门清单（默认最多 40 条） |
+| **触发** | ① 年（2024年 / 去年 / 今年）或季（春夏秋冬）+ 出门/出去玩；② **节假日**（国庆/春节/五一/中秋/端午/清明/元旦 等）+ 去哪/出去玩/出门，或「去年国庆」裸问 |
+| **查库** | outing 事件：年/季用 `day` 前缀 + 可选月份；假日用 `day_from`～`day_to`（国务院放假窗，前后各扩 1 天） |
+| **回答** | 口语按天汇总地点（不去堆每趟张数/人名）；点出照片最多的一处；细节看证据区 |
+| **注意** | 「春节」不会误当成「春」季；「国庆的照片 / 2023年国庆节相关照片」走 `keyword_search`，但按放假日期窗搜图，不靠 tags 里写「国庆」 |
 
 ```bash
 python tools/memory_ask/main.py "面面2024年出去玩了哪些"
 python tools/memory_ask/main.py "去年春天出门"
+python tools/memory_ask/main.py "去年国庆去哪里玩了"
+python tools/memory_ask/main.py "2024年春节出门"
 ```
+
+### `period_recap` — 时段出门 + 开心吗 + 见了谁（复合口语）
+
+| 项 | 说明 |
+|----|------|
+| **触发** | 同 `outings_by_period` / 最近出门，且句中还问 **开心/高兴** 或 **见了谁/哪些人** |
+| **查库** | 出门事件 + 同日窗内 emotion 词频 + 同框人物；证据图附时段样例 |
+| **回答** | 先讲去哪，再据标注说开不开心（不足则明说看不太出），再列同行人 |
+| **示例** | 「去年国庆去哪里玩了？开心吗？见了哪些人？」 |
+
+```bash
+python tools/memory_ask/main.py "去年国庆去哪里玩了？开心吗？见了哪些人？"
+```
+
+### 轻量追问（`POST /api/ask` + `context`）
+
+| 意图 | 触发（须带上一轮 context） | 行为 |
+|------|---------------------------|------|
+| `explain_basis` | 依据是什么 / 怎么知道 / 证据 | 用上一轮 `basis_summary` 说明查了什么，不编造 |
+| `period_emotion` | 开心吗 / 高兴吗 | 同一 `day_from`～`day_to` 看 emotion |
+| `period_companions` | 见了谁 / 哪些人 | 同一时段同框人物 |
+| （复用） | 还有吗 | 用 `last_params` 再查上一意图 |
+
+响应另含 `follow_ups`（芯片文案）与 `context`（供下一轮）。Vue / iOS 点芯片时自动带 context。
 
 ### `outings_at_place` — 某地几趟出门
 
@@ -132,8 +165,8 @@ python tools/memory_ask/main.py "面面的画作"
 | 项 | 说明 |
 |----|------|
 | **触发** | 「有没有X」「搜X」「X的照片」「关于X」等（X **不是**已知人名） |
-| **参数** | `query`（关键词）、`person`（可选）、`limit` |
-| **查库** | `search_photos(query=…)` — `scene` / `location` / `photo_terms` LIKE |
+| **参数** | `query`（关键词）、`person`（可选）、`limit`；节假日照片另带 `day_from` / `day_to` |
+| **查库** | 默认 `search_photos(query=…)` — `scene` / `location` / `photo_terms` LIKE；**节假日+照片** 改为拍摄日闭区间 |
 | **回答** | 命中总数口语短答；`photos` 返回全部命中（上限内），Web 证据区分页展示 |
 
 ```bash
@@ -146,8 +179,17 @@ python tools/memory_ask/main.py "老家的照片"
 
 表情类「面面哭 / 有没有哭」走 `term_lookup`（优先级更高）。  
 「骑车 / 坐船 / 游泳 / 玩水 / 爬山…」等人名+活动短句走 `keyword_search`（多数按 **actions** 匹配，减少背景误伤）。  
+「过生日 / 生日 / 庆生」走别名（索引多为「生日」而非「过生日」）；**带人名时**再并入 registry `birth_date` 的周年日（±1 天）照片并排在前面。  
 地名「山西 / 忻州 / 老家」走 **省市区字段**（`location_province/city`）；`老家` 默认映射为 **忻州**（见 `query._PLACE_ALIASES`）。  
 **人名**「抱补的照片 / 面面的照片」走 `recent_photos`（`list_all`，返回该人全部照片，不是默认 10 张）。
+
+```bash
+python tools/memory_ask/main.py "面面过生日"
+python tools/memory_ask/main.py "面面生日"
+python tools/memory_ask/main.py "2023年的国庆节相关照片"
+```
+
+节假日名一般不会写进 tags。问「国庆的照片」按国务院放假窗（前后各扩 1 天）列该时段照片；「去年国庆去哪里玩了」仍走出门事件。
 
 ### `unknown` — 未识别
 
@@ -180,15 +222,18 @@ python tools/memory_ask/main.py "面面哪天的照片最多，在什么地方"
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 「哪些人 / 和谁 / 有谁」+ 去过 + 地名；可带锚点人名（如面面） |
-| **参数** | `person`（可选）、`place`、`limit`（证据图默认全量） |
-| **查库** | `get_companions_at_place()` — 该地（且含锚点时）照片上的同框人物排行 |
-| **回答** | 同框人物列表（按张数）+ 相关证据图 |
+| **触发** | 「哪些人 / 和谁 / 有谁」+ 去过 + 地名；可带锚点人名（如面面）；可带「什么时候 / 分别」 |
+| **参数** | `person`（可选）、`place`、`limit`（证据图默认全量）、`focus=when`（问分别何时） |
+| **查库** | `get_companions_at_place()` — 该地（且含锚点时）照片上的同框人物；每人含 `visit_days` / `day_count` |
+| **回答** | 同框人物 + 到访日期（有则列出）+ 相关证据图 |
 
 ```bash
 python tools/memory_ask/main.py "面面哪些人去过动物园"
 python tools/memory_ask/main.py "面面和谁去过迪士尼"
+python tools/memory_ask/main.py "面面和谁去过动物园，分别是什么时候"
 ```
+
+与 `person_at_place`（只问某人何时去某地、不拆同框）区分：含「和谁/哪些人」时优先本意图，即使句中有「什么时候」。
 
 ---
 
@@ -196,16 +241,17 @@ python tools/memory_ask/main.py "面面和谁去过迪士尼"
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 「和哪个人 / 和谁」+「合影/合照/同框」+「最多」；或「合影最多的人」 |
-| **参数** | `person`、`limit`（排行人数，默认 12）、`photo_limit`（与第一名同框的证据图） |
-| **查库** | `get_person_companion_rank()` — `photo_people` 同框计数，排除 `unk_*` |
-| **回答** | 第一名 + 同框排行 + 与第一名的合影证据图 |
+| **触发** | 「和哪个人 / 和谁」+「合影/合照/同框」+「最多 / 比较多」；或「合影最多的人」 |
+| **参数** | `person`、`limit`（排行人数，默认 12）、`photo_limit`（与第一名同框的证据图）；可选 `since` + `period_label`（「最近3个月 / 近半年 / 最近两周」） |
+| **查库** | `get_person_companion_rank()` — `photo_people` 同框计数，排除 `unk_*`；有 `since` 时按 `timestamp` 过滤 |
+| **回答** | 第一名 + 同框排行 + 与第一名的合影证据图（有时间窗时回答里带「最近N…」） |
 
 与 `group_photos`（指定两人列合影）、`companions_at_place`（某地同框）、`person_place_rank`（地点排行，勿因「最多」误入）区分。
 
 ```bash
 python tools/memory_ask/main.py "面面和哪个人的合影最多"
 python tools/memory_ask/main.py "面面和谁合照最多"
+python tools/memory_ask/main.py "面面最近3个月和谁合影比较多"
 ```
 
 ---
@@ -275,18 +321,19 @@ python tools/memory_ask/main.py "面面在哪个地方笑的最多"
 
 | 项 | 说明 |
 |----|------|
-| **触发** | 「哪些地方 / 什么地方 / 去过哪些」（不含「城市」） |
-| **参数** | `person`、`limit`（默认 20） |
-| **查库** | `get_person_place_rank()` — 全时期 `location` 去重聚合 |
+| **触发** | 「哪些地方 / 什么地方 / 去过哪些 / 去了哪些地方」（不含「城市」）；也可「A和B去了哪些地方」 |
+| **参数** | `person`、`limit`（默认 20）；可选 `companions`（同框同伴）、`since` + `period_label`（最近 N 月/天） |
+| **查库** | `get_person_place_rank()` — `location` 去重聚合；有同伴时须同框；有 `since` 时按 `timestamp` 过滤 |
 | **回答** | 总地点数 + 按照片数列出前 N 个 POI |
 
 示例：
 
 ```bash
 python tools/memory_ask/main.py "妈妈去过哪些地方"
+python tools/memory_ask/main.py "面面最近三个月和抱补去了哪些地方"
 ```
 
-与 `person_place_rank`（「常去/最多」语义）和 `person_cities_visited`（省/市级）区分。
+与 `person_place_rank`（「常去/最多」语义）、`group_photos`（合影清单）、`person_cities_visited`（省/市级）区分。
 
 ---
 
@@ -479,15 +526,27 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 
 ---
 
+| 处理流程 | 说明 |
+|----------|------|
+| `route_intent` | 正则路由 |
+| `gather_facts` | 查库 → 意图相关 facts |
+| `_template_answer` / `_llm_answer` | 组句（LLM 锁 facts） |
+| `build_evidence` | 从 facts 抽出统一 **evidence**（media/event/story ids + `media_type`） |
+
+Desk `POST /api/ask` 返回：`intent` / `answer` / `facts` / **`evidence`** / `follow_ups` / `context`。
+「依据是什么」读上一轮 `basis_summary`（含 media/event/story 样例 id）。
+
+---
+
 ## 已知限制
 
 | 问题 | 说明 |
 |------|------|
 | 说法变体 | 正则无法覆盖所有中文；高频句式靠迭代补充 |
 | emotion / scene | `scene`/`tags`/`objects` 已约九成有值；`emotion` 仍约四成，表情类统计可能偏少 |
-| 复合条件 | 如「4岁在公园哭过几次」= 年龄 × 地点 × 表情，尚未实现（阶段 2 P1） |
-| 单人默认 | 问句无人名且 registry 仅一名成员时默认——**尚未实现**（阶段 2 P1） |
+| 复合条件 | 人名×地点×同框时间已通（`companions_at_place`+when）；年龄×地点×表情等仍待做 |
 | 关键词边界 | `keyword_search` 靠句式抽取；过短/停用词会落到 `unknown` |
+| Day ≠ Outing | 日历日切片见 `GET /api/day-slice`；出门事件见 `/api/events`，二者不可互换 |
 
 ---
 
@@ -496,13 +555,33 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 | 优先级 | 项 | 状态 |
 |--------|----|------|
 | P0 | `unknown` 意图 | ✅ 已替换 fallback |
-| P0 | `keyword_search` | ✅ 已接线 `search_photos` |
-| P1 | 复合过滤（先做 2 维） | 🚧 人名×活动 / 人名×表情短句已通；地点×年龄等仍待做 |
+| P0 | `keyword_search` | ✅ 已接线 `search_photos`；话术认 `media_type` |
+| P1 | 复合过滤（先做 2 维） | 🚧 人名×活动/表情、同框×地点×时间已通；合影排行×最近N月/天已通；**两人×时间窗×地点列表**已通；年龄×地点、地点×表情仍待做 |
 | P1 | 单人默认人物 | ✅ 唯一 `child`（面面）或唯一成员时默认 |
-| P2 | 端上证据 | iOS 证据面板向 Web 对齐；示例芯片覆盖更多意图 |
-| — | 暂不做 | 向量 RAG、对话记忆、流式输出 |
+| P1 | 复合口语拆解 `period_recap` | ✅ 时段出门 + 开心吗 + 见了谁 → 一次查库合成（国庆样例） |
+| P1 | 叙事类 LLM 润色 | ✅ 出门回顾 / 追问等放开；统计与排行仍模板 |
+| P1 | 答后「可继续问」芯片 | ✅ `follow_ups` + Vue / iOS |
+| P1 | 轻量追问 `context` | ✅ `POST /api/ask` 可选上一轮；依据 / 开心吗 / 见了谁 |
+| P1 | 统一 **evidence** 合同 | ✅ `hub/shared/evidence.py`；Desk/Vue/iOS；依据可列 media id |
+| P1 | 答案与证据对齐 | ✅ 关键词/最近话术用 media 量词；`explain_basis` 引 evidence |
+| P2 | 端上证据 | ✅ iOS 读 `evidence.media`；示例芯片覆盖更多意图 |
+| — | 暂不做 | 向量 RAG、**完整多轮会话库**、流式输出、闲聊 Bot |
 
 可选：`person_age_emotion`（「N 岁时常什么表情」）。
+
+---
+
+## 长期形态：有据记忆智能体（非闲聊）
+
+北极星：**听懂口语 → 拆成可查事实 → 用照片/事件/故事回答 → 允许追问；不编造。**
+
+| 层 | 内容 | 状态 |
+|----|------|------|
+| **A** | 一句多问拆解、叙事润色（锁 facts）、继续问芯片 | ✅ 本阶段 |
+| **B** | `last_turn` 上下文：依据 / 开心吗 / 见了谁 | ✅ 本阶段（无长期 session 落盘） |
+| **C（远期）** | 人物画像聚合、短会话、工具化查库；依赖旁白/故事录入 | 🔜 见 [architecture.md](architecture.md) |
+
+产品隐喻：记忆图书管理员 + 温和讲述者。人格来自 registry / 事件 / 故事 / `user_note`，不是模型装熟。
 
 ---
 
@@ -518,5 +597,6 @@ Ollama 文本模型（`OLLAMA_CHAT_MODEL`）可用时会在事实基础上润色
 | `web/src/components/MemoryAsk.vue` | Web 问答 UI |
 | `apps/ios/MemoryGraph/Views/Ask/` | iOS 问问 |
 | `data/faces/registry.json` | 家庭成员姓名、birth_date |
+| [`ask-checklist.md`](ask-checklist.md) | 错题本说明；UI 在 Vue「问答」 |
 
 日常操作见 [operations.md](operations.md)；整体架构见 [architecture.md](architecture.md)；阶段划分见 [Project Charter](Project%20Charter.md)。

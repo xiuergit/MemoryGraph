@@ -5,6 +5,7 @@ final class AskViewModel: ObservableObject {
     @Published var question: String = ""
     @Published var answer: String = ""
     @Published var evidence: [PhotoItem] = []
+    @Published var followUps: [String] = []
     /// 无问答证据时展示：面面最近单人像
     @Published var defaultPortraits: [PhotoItem] = []
     @Published var isLoading = false
@@ -13,6 +14,9 @@ final class AskViewModel: ObservableObject {
 
     /// 每次成功拿到新答案时递增，供 UI 触发朗读。
     @Published private(set) var answerToken: Int = 0
+
+    /// 上一轮 context，供「继续问」芯片带上。
+    private var lastContext: AskTurnContext?
 
     static let defaultKidName = "面面"
 
@@ -34,7 +38,12 @@ final class AskViewModel: ObservableObject {
 
     func useChip(_ text: String, api: DeskAPIClient) {
         question = text
-        Task { await submit(using: api) }
+        Task { await submit(using: api, withContext: false) }
+    }
+
+    func useFollowUp(_ text: String, api: DeskAPIClient) {
+        question = text
+        Task { await submit(using: api, withContext: true) }
     }
 
     func submitVoice(_ text: String, api: DeskAPIClient) async {
@@ -44,10 +53,10 @@ final class AskViewModel: ObservableObject {
             return
         }
         question = trimmed
-        await submit(using: api)
+        await submit(using: api, withContext: false)
     }
 
-    func submit(using api: DeskAPIClient) async {
+    func submit(using api: DeskAPIClient, withContext: Bool = false) async {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else {
             errorMessage = "先说一句想问的话"
@@ -58,9 +67,12 @@ final class AskViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let result = try await api.ask(question: q)
+            let ctx = withContext ? lastContext : nil
+            let result = try await api.ask(question: q, context: ctx)
             answer = result.answer
-            evidence = result.facts.evidencePhotos
+            evidence = result.facts.mergedEvidencePhotos(from: result.evidence)
+            followUps = result.followUps ?? []
+            lastContext = result.context
             answerToken += 1
             if evidence.isEmpty {
                 await loadDefaultPortraits(using: api)
@@ -68,6 +80,7 @@ final class AskViewModel: ObservableObject {
         } catch {
             answer = ""
             evidence = []
+            followUps = []
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }

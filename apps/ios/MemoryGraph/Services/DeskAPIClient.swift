@@ -54,14 +54,14 @@ final class DeskAPIClient: ObservableObject {
 
     // MARK: - Ask
 
-    func ask(question: String) async throws -> AskResponse {
+    func ask(question: String, context: AskTurnContext? = nil) async throws -> AskResponse {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw DeskAPIError.httpStatus(400, "问题不能为空")
         }
         var request = try makeRequest(path: "/api/ask", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(AskRequestBody(question: trimmed))
+        request.httpBody = try JSONEncoder().encode(AskRequestBody(question: trimmed, context: context))
         return try await send(request)
     }
 
@@ -133,6 +133,89 @@ final class DeskAPIClient: ObservableObject {
             URLQueryItem(name: "size", value: String(size)),
         ]
         return components?.url
+    }
+
+    // MARK: - Outbox (ingest / describe / story)
+
+    func ingestMedia(
+        fileURL: URL,
+        localId: String,
+        mutationId: String,
+        deviceId: String,
+        capturedAt: String
+    ) async throws -> IngestReceipt {
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = try makeRequest(path: "/api/media/ingest", method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        let fileData = try Data(contentsOf: fileURL)
+        let filename = fileURL.lastPathComponent
+        var body = Data()
+
+        func appendField(_ name: String, _ value: String) {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+
+        appendField("local_id", localId)
+        if !mutationId.isEmpty { appendField("mutation_id", mutationId) }
+        appendField("device_id", deviceId)
+        if !capturedAt.isEmpty { appendField("captured_at", capturedAt) }
+        appendField("queue_analyze", "true")
+
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
+            "Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n"
+                .data(using: .utf8)!
+        )
+        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        return try await send(request)
+    }
+
+    func describeMedia(
+        photoId: String,
+        userNote: String,
+        mutationId: String,
+        deviceId: String
+    ) async throws -> DescribeReceipt {
+        var request = try makeRequest(path: "/api/media/describe", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload = DescribeBody(
+            photoId: photoId,
+            userNote: userNote,
+            mutationId: mutationId,
+            deviceId: deviceId
+        )
+        request.httpBody = try JSONEncoder().encode(payload)
+        return try await send(request)
+    }
+
+    func upsertStory(
+        storyId: String,
+        title: String,
+        body: String,
+        links: [StoryLinkPayload],
+        mutationId: String,
+        deviceId: String
+    ) async throws -> StoryUpsertReceipt {
+        var request = try makeRequest(path: "/api/stories/upsert", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let payload = StoryUpsertBody(
+            storyId: storyId,
+            title: title,
+            body: body,
+            links: links,
+            mutationId: mutationId,
+            deviceId: deviceId
+        )
+        request.httpBody = try JSONEncoder().encode(payload)
+        return try await send(request)
     }
 
     // MARK: - Internals

@@ -11,3 +11,6 @@ open-clip-torch>=2.24.0
 torch>=2.0.0
 torchvision>=0.15.0
 jsonschema>=4.21.0
+# 视频字幕 ASR（需本机 ffmpeg）。Python 3.14 勿直接 pip install faster-whisper（会编 PyAV）：
+#   pip install faster-whisper --no-deps
+#   pip install "ctranslate2>=4.0" huggingface_hub tokenizers

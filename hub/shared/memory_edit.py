@@ -13,8 +13,10 @@ from hub.shared.family import enrich_people_with_age, load_family_members
 from hub.shared.index_db import sync_json_file
 from hub.shared.schema import (
     Person,
+    bump_schema_for_user_note,
     empty_location_admin,
     location_admin_from_dict,
+    make_transcript,
     refresh_manual_edit_flag,
 )
 
@@ -243,6 +245,7 @@ def update_photo_fields(
     emotion: list[str] | None = None,
     tags: list[str] | None = None,
     timestamp: str | None = None,
+    user_note: str | None = None,
     memory_dir: Path | None = None,
     db_path: Path | None = None,
 ) -> MemoryEditResult:
@@ -295,6 +298,12 @@ def update_photo_fields(
     if vision_touched:
         data["manual_vision"] = True
 
+    if user_note is not None:
+        data["user_note"] = str(user_note)
+        data["manual_note"] = True
+        bump_schema_for_user_note(data)
+        changed = True
+
     if not changed:
         raise MemoryEditError("没有要更新的字段")
 
@@ -302,6 +311,63 @@ def update_photo_fields(
     refresh_manual_edit_flag(data)
     if had_manual_edit:
         data["manual_edit"] = True
+    _save_and_sync(path, data, db_path=db_path)
+    return MemoryEditResult(photo_id=photo_id, updated=True)
+
+
+def apply_user_note(
+    photo_id: str,
+    user_note: str,
+    *,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+) -> MemoryEditResult:
+    """写入旁白：user_note + manual_note；升 schema_version；同步索引。
+
+    空字符串合法（用户清空旁白仍保留 manual_note，避免被误当未写）。
+    """
+    path, data = _load_photo_json(photo_id, memory_dir)
+    note = str(user_note or "")
+    data["user_note"] = note
+    data["manual_note"] = True
+    bump_schema_for_user_note(data)
+    refresh_manual_edit_flag(data)
+    _save_and_sync(path, data, db_path=db_path)
+    return MemoryEditResult(photo_id=photo_id, updated=True)
+
+
+def update_transcript(
+    photo_id: str,
+    text: str,
+    *,
+    confirm: bool = False,
+    language: str | None = None,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+) -> MemoryEditResult:
+    """保存字幕草稿或确认进问答。
+
+    confirm=False → status=draft（可展示；不进检索）
+    confirm=True  → status=confirmed + manual_transcript（进检索；ASR 跳过）
+    """
+    path, data = _load_photo_json(photo_id, memory_dir)
+    existing = data.get("transcript") if isinstance(data.get("transcript"), dict) else {}
+    lang = (
+        (language if language is not None else str(existing.get("language") or "")).strip()
+        or "zh"
+    )
+    new_text = str(text or "").strip()
+    if confirm and not new_text:
+        raise MemoryEditError("确认进问答前请填写字幕内容")
+
+    data["transcript"] = make_transcript(
+        new_text,
+        language=lang,
+        source="manual",
+        status="confirmed" if confirm else "draft",
+    )
+    data["manual_transcript"] = True
+    refresh_manual_edit_flag(data)
     _save_and_sync(path, data, db_path=db_path)
     return MemoryEditResult(photo_id=photo_id, updated=True)
 

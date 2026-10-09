@@ -53,9 +53,11 @@ tools/memory_ask / Desk API
 
 **增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）；人脸库变更后用 `--backfill faces --refill`。
 
-### 路径 B：iPhone App 上传 ❌ 暂不做
+### 路径 B：iPhone App 上传 ❌ 暂不做（有设计稿）
 
-曾预留 `hub/mac_server` `POST /import` 骨架。**当前不需要、不推进**；采集一律「导出原图到 Mac」再跑 `photo2json`。`apps/ios` 是消费端，不是上传端。
+曾预留 `hub/mac_server` `POST /import` 骨架。**当前不实现**；采集一律「导出原图到 Mac」再跑 `photo2json`。`apps/ios` 是消费端，不是上传端。
+
+长期设想（回家上传原图进 `photos/`、手机写描述/故事、年/月目录与 `ob_` 防撞名）：见 [mobile-outbox.md](mobile-outbox.md)。
 
 ## 存储布局
 
@@ -124,24 +126,71 @@ id 规则见 [media-memory.md](media-memory.md)：照片为路径 stem；视频 
 |------|------|------|
 | **0** | Mac 批量 Photo→JSON | ✅ 完成 |
 | **1** | 本地视觉 + 人脸识别 | ✅ Ollama + InsightFace + CLIP |
-| **2** | 结构化问答打磨 | 🚧 **当前**（fallback / 关键词意图 / 复合条件等，见 [agent-intents.md](agent-intents.md)） |
+| **2** | 结构化问答打磨 | 🚧 **当前**（复合口语 / 轻量追问 / 叙事润色，见 [agent-intents.md](agent-intents.md)） |
 | **3** | 记忆库索引与检索 | ✅ SQLite + CLI + Desk + Vue + iOS 消费端；筛选结果时间轴 🔜 |
 | **4** | Event 聚合 v1 | ✅ `memory_events sync` + Vue「事件」Tab + 相关问答意图 |
-| — | iOS 上传 / 日常同步 | ❌ 暂不做（导出到 Mac） |
-| **5+** | 向量 RAG、筛选时间轴 | 🔜；**不做**全库相册式时间轴 |
-| **并行** | video/audio JSON pipeline | 协议 ✅（`video.v1` / `audio.v1`）；实现可与阶段 2 并行，见 [media-memory.md](media-memory.md) |
+| — | iOS 上传 / 日常同步 | ❌ 暂不做（导出到 Mac）；Outbox 回家同步见 [mobile-outbox.md](mobile-outbox.md) |
+| **5+** | 向量 RAG、筛选时间轴、记忆智能体层 C | 🔜；**不做**全库相册式时间轴、公网闲聊 Bot |
+| **并行** | video/audio JSON pipeline | 协议 ✅；实现可与阶段 2 并行，见 [media-memory.md](media-memory.md) |
 
 > 原「阶段 2 = iOS 上传」已取消，编号改用于当前问答打磨。阶段 3/4 核心功能已完成。
+
+### 问答演进（有据记忆智能体）
+
+| 层 | 做什么 | 不做什么 |
+|----|--------|----------|
+| A/B（当前） | 一句多问拆解、`follow_ups` 芯片、`context` 追问（依据/开心/见人）、叙事类 LLM 锁 facts | 完整会话库、自由闲聊 |
+| C（远期） | 人物画像（常去地/同框/故事摘要）、短会话、查库工具化；旁白/故事抬升「开心吗」 | 模型假装认识娃、无证据编造 |
+
+Mac 问答入口：`hub/shared/agent.py` → Desk `POST /api/ask`（可选 `context`）→ Vue / iOS。
+
+### 证据合同（Evidence）
+
+`POST /api/ask` 除 `facts`（意图相关自由结构）外，返回统一 **`evidence`**：
+
+```json
+{
+  "media": [{"id", "media_type", "timestamp", "location", "scene", "source_path"}],
+  "events": [{"id", "day", "location", "photo_count"}],
+  "stories": [{"id", "title"}],
+  "counts": {"media", "events", "stories", "by_media_type": {"photo", "video", "audio"}}
+}
+```
+
+追溯链：`answer` → `evidence.*.id` → `data/memory/{id}.json` / 原片 / 事件详情。LLM 只组句，不得创造不在 facts/evidence 里的事实。实现：`hub/shared/evidence.py`。
+
+### DaySlice ≠ Outing
+
+| 概念 | 含义 | API / 函数 |
+|------|------|------------|
+| **DaySlice** | 日历日上的全部记忆（含单张日、视频、音频、`user_note`、相关故事） | `GET /api/day-slice?day=YYYY-MM-DD` · `query.get_day_slice()` |
+| **Outing / Event** | 同日 GPS/地名聚类的出门/回家事件（通常 ≥2 张；`event_id` 随成员集变化） | `GET /api/events?day=` · `memory_events sync` |
+
+**时间旅行应建在 DaySlice 上**，不要把 outing 列表当成「这一天的全部记忆」。故事/overlay 长期挂靠用 **已落地 photo_id**（`anchor_photo_ids` / `story.links`）；Desk 若传入 `link_type=event` 会展开为 photo anchors，手机 Outbox **禁止** event link。
 
 ## 浏览与时间轴（产品边界）
 
 | 类型 | 做不做 | 说明 |
 |------|--------|------|
 | **全库相册式时间轴** | ❌ 不做 | 按年/月/日滚全部缩略图 ≈ 重做 Photos App，与「记忆系统」定位冲突；日常翻图用 iPhone 相册 |
+| **日历日切片 DaySlice** | ✅ 查询底座 | 按日聚合媒体+旁白+事件+故事；UI 可后做 |
 | **筛选结果时间轴** | 🔜 远期可选 | 先检索（人物/物体/scene/tags/地点）→ 命中结果按时间分组，看「第一次」「变化趋势」 |
 | **当前替代** | ✅ 已有 | 列表 Tab（分页+人物/关键词/年份筛选）、事件 Tab（出门粒度）、问答（证据缩略图）、CLI `memory_index timeline` |
 
 若实现筛选时间轴，建议轻量：例如在列表 Tab 增加「时间分组」视图，而非独立相册模块。
+
+## 记忆智能体层 C（远期，未实现）
+
+在 A/B（复合拆解 + last_turn 追问）稳定后，再考虑：
+
+| 能力 | 真源 | 说明 |
+|------|------|------|
+| 人物画像聚合 | SQLite + annotations | 常去地、常同框、年龄阶段、故事摘要；可导出审计 |
+| 短会话 | 内存 / 可选 annotations | 一次「聊聊国庆」；结束可丢；不做公网多用户 session |
+| 工具化查库 | `query.py` 函数作 tool | LLM 只拆问与组句；禁止无 facts 编童年 |
+| 旁白/故事抬升 | Outbox `user_note` + stories | 「开心吗 / 那次怎样」优先用人话，其次 emotion 标注 |
+
+**不做**：无限闲聊 Bot、手机跑大模型、公网 Agent 框架。
 
 日常操作详见 [operations.md](operations.md)。
 

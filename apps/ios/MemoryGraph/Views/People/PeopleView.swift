@@ -14,6 +14,7 @@ struct PeopleView: View {
                 NavigationSplitView {
                     peopleList
                         .navigationTitle("看谁")
+                        .navigationBarTitleDisplayMode(.inline)
                 } detail: {
                     if let selected {
                         NavigationStack {
@@ -31,6 +32,7 @@ struct PeopleView: View {
                 NavigationStack {
                     peopleList
                         .navigationTitle("看谁")
+                        .navigationBarTitleDisplayMode(.inline)
                         .navigationDestination(item: $selected) { person in
                             PersonPhotosView(person: person)
                         }

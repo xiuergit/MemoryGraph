@@ -81,11 +81,12 @@ Mac 的 `data/photos/` 与 `data/memory/` 是唯一记忆库；协议见 `schema
 
 - ✅ 未匹配意图 → `unknown` + 可问示例（已替换 fallback 到 `recent_photos`）
 - ✅ 关键词 / 物体 / 场景 / tags 检索意图（`keyword_search` → `search_photos`）
-- 🚧 常用复合条件（如人物 × 地点 × 年龄；表情类视覆盖率）
-- 🚧 问句未写人名时的合理默认
+- ✅ 问句未写人名时的合理默认（唯一 child）
+- ✅ 复合口语拆解（如国庆出门 + 开心吗 + 见了谁）与轻量追问（`context` / 继续问芯片）
+- 🚧 常用复合条件（年龄 × 地点等仍待做）；表情类视覆盖率
 - 可选：iOS 证据面板向 Web 对齐；示例芯片覆盖更多意图
 
-详见 [agent-intents.md](agent-intents.md)。
+**长期**：有据可查的记忆智能体（多轮是手段）；**不做**无事实闲聊 Bot。详见 [agent-intents.md](agent-intents.md)。
 
 ### 阶段 3：记忆库 ✅（核心已完成）
 

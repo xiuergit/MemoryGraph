@@ -11,6 +11,7 @@ import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import sqlite3
@@ -692,6 +693,29 @@ def _day_filter_clause(alias: str, day: str) -> tuple[str, list[Any]]:
     return f"{col} LIKE ?", [f"{d}%"]
 
 
+def _day_range_clause(
+    alias: str,
+    *,
+    day_from: str = "",
+    day_to: str = "",
+) -> tuple[str, list[Any]]:
+    """闭区间 [day_from, day_to]；空端点忽略。要求 e.day 非空。"""
+    start = (day_from or "").strip()[:10]
+    end = (day_to or "").strip()[:10]
+    if not start and not end:
+        return "", []
+    col = f"{alias}.day" if alias else "day"
+    clauses = [f"{col} != ''", f"{col} IS NOT NULL"]
+    params: list[Any] = []
+    if start:
+        clauses.append(f"{col} >= ?")
+        params.append(start)
+    if end:
+        clauses.append(f"{col} <= ?")
+        params.append(end)
+    return " AND ".join(clauses), params
+
+
 def _keyword_event_clause(pattern: str) -> tuple[str, list[Any]]:
     """事件内任意照片的 scene / photo_terms，或地点 / 备注命中。"""
     return (
@@ -719,6 +743,8 @@ def _keyword_event_clause(pattern: str) -> tuple[str, list[Any]]:
 def _event_list_clauses(
     *,
     day: str = "",
+    day_from: str = "",
+    day_to: str = "",
     include_home: bool = False,
     location: str = "",
     person: str = "",
@@ -726,7 +752,10 @@ def _event_list_clauses(
     months: list[int] | tuple[int, ...] | None = None,
     time_scope: str = "all",
 ) -> tuple[str, list[Any]]:
-    """time_scope: all | dated | untimed — 控制是否含无时间地点事件。"""
+    """time_scope: all | dated | untimed — 控制是否含无时间地点事件。
+
+    day_from/day_to 与 day 互斥优先：有区间时忽略 day 前缀。
+    """
     clauses = ["1=1"]
     params: list[Any] = []
     scope = (time_scope or "all").strip().lower()
@@ -740,10 +769,15 @@ def _event_list_clauses(
         params.append(SOURCE_AUTO)
     if not include_home:
         clauses.append("e.is_home = 0")
-    day_sql, day_params = _day_filter_clause("e", day)
-    if day_sql:
-        clauses.append(day_sql)
-        params.extend(day_params)
+    range_sql, range_params = _day_range_clause("e", day_from=day_from, day_to=day_to)
+    if range_sql:
+        clauses.append(range_sql)
+        params.extend(range_params)
+    else:
+        day_sql, day_params = _day_filter_clause("e", day)
+        if day_sql:
+            clauses.append(day_sql)
+            params.extend(day_params)
     if months:
         month_vals = sorted({int(m) for m in months if 1 <= int(m) <= 12})
         if month_vals:
@@ -768,6 +802,8 @@ def list_events(
     conn: sqlite3.Connection,
     *,
     day: str = "",
+    day_from: str = "",
+    day_to: str = "",
     include_home: bool = False,
     location: str = "",
     person: str = "",
@@ -779,6 +815,8 @@ def list_events(
 ) -> list[dict[str, Any]]:
     where, params = _event_list_clauses(
         day=day,
+        day_from=day_from,
+        day_to=day_to,
         include_home=include_home,
         location=location,
         person=person,
@@ -816,6 +854,8 @@ def count_events(
     conn: sqlite3.Connection,
     *,
     day: str = "",
+    day_from: str = "",
+    day_to: str = "",
     include_home: bool = False,
     location: str = "",
     person: str = "",
@@ -825,6 +865,8 @@ def count_events(
 ) -> int:
     where, params = _event_list_clauses(
         day=day,
+        day_from=day_from,
+        day_to=day_to,
         include_home=include_home,
         location=location,
         person=person,
@@ -1336,8 +1378,12 @@ def create_story(
     time_end: str = "",
     people: list[str] | None = None,
     links: list[dict[str, Any]] | None = None,
+    story_id: str | None = None,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+    ingest_registry_path: Path | None = None,
 ) -> dict[str, Any]:
-    story_id = "sty_" + uuid.uuid4().hex[:12]
+    sid = (story_id or "").strip() or ("sty_" + uuid.uuid4().hex[:12])
     now = _now_iso()
     people = people or []
     conn.execute(
@@ -1347,7 +1393,7 @@ def create_story(
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            story_id,
+            sid,
             title.strip(),
             body,
             time_start,
@@ -1356,12 +1402,19 @@ def create_story(
             now,
         ),
     )
-    _replace_story_links(conn, story_id, links or [])
+    _replace_story_links(
+        conn,
+        sid,
+        links or [],
+        memory_dir=memory_dir,
+        db_path=db_path,
+        ingest_registry_path=ingest_registry_path,
+    )
     conn.commit()
     from hub.shared.annotations import flush_annotations_from_db
 
     flush_annotations_from_db(conn)
-    result = get_story(conn, story_id)
+    result = get_story(conn, sid)
     assert result is not None
     return result
 
@@ -1376,6 +1429,9 @@ def update_story(
     time_end: str | None = None,
     people: list[str] | None = None,
     links: list[dict[str, Any]] | None = None,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+    ingest_registry_path: Path | None = None,
 ) -> dict[str, Any]:
     existing = get_story(conn, story_id)
     if existing is None:
@@ -1404,7 +1460,14 @@ def update_story(
         ),
     )
     if links is not None:
-        _replace_story_links(conn, story_id, links)
+        _replace_story_links(
+            conn,
+            story_id,
+            links,
+            memory_dir=memory_dir,
+            db_path=db_path,
+            ingest_registry_path=ingest_registry_path,
+        )
     conn.commit()
     from hub.shared.annotations import flush_annotations_from_db
 
@@ -1418,16 +1481,29 @@ def _replace_story_links(
     conn: sqlite3.Connection,
     story_id: str,
     links: list[dict[str, Any]],
+    *,
+    memory_dir: Path | None = None,
+    db_path: Path | None = None,
+    ingest_registry_path: Path | None = None,
 ) -> None:
+    from hub.shared.story_upsert import normalize_story_links
+
+    # 空 links 合法（无图草稿）；photo 必须已落地。
+    # Desk 允许 event，但一律展开为 photo anchors（不落 event link）。
+    normalized = normalize_story_links(
+        links,
+        memory_dir=memory_dir,
+        db_path=db_path,
+        ingest_registry_path=ingest_registry_path,
+        allow_event=True,
+        expand_event_to_photos=True,
+        conn=conn,
+    )
     conn.execute("DELETE FROM story_links WHERE story_id = ?", (story_id,))
-    rows = []
-    for i, link in enumerate(links):
-        link_type = str(link.get("link_type") or "").strip()
-        link_id = str(link.get("link_id") or "").strip()
-        if link_type not in ("event", "photo") or not link_id:
-            continue
-        sort_order = int(link.get("sort_order", i))
-        rows.append((story_id, link_type, link_id, sort_order))
+    rows = [
+        (story_id, link["link_type"], link["link_id"], int(link["sort_order"]))
+        for link in normalized
+    ]
     if rows:
         conn.executemany(
             """

@@ -60,9 +60,21 @@ def main() -> int:
     if args.debug:
         print(f"[intent={result.intent}, llm={result.used_llm}]")
         print(result.facts)
+        if result.evidence:
+            counts = (result.evidence.get("counts") or {})
+            print(
+                f"[evidence media={counts.get('media', 0)} "
+                f"events={counts.get('events', 0)} "
+                f"stories={counts.get('stories', 0)} "
+                f"by_type={counts.get('by_media_type')}]"
+            )
+        if result.follow_ups:
+            print(f"[follow_ups={result.follow_ups}]")
         print("---")
 
     print(result.answer)
+    if result.follow_ups and not args.debug:
+        print("\n可以继续问：" + " / ".join(result.follow_ups))
     return 0
 
 

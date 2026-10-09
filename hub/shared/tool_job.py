@@ -24,6 +24,8 @@ _IDLE: dict[str, Any] = {
     "message": "",
     "error": "",
     "cancelled": False,
+    "pending_at_start": 0,
+    "batch_limit": None,
     "started_at": 0.0,
     "finished_at": 0.0,
     "result": None,
@@ -41,7 +43,13 @@ def is_cancelled() -> bool:
     return _cancel.is_set()
 
 
-def start(kind: str, *, year: str = "") -> None:
+def start(
+    kind: str,
+    *,
+    year: str = "",
+    pending_at_start: int = 0,
+    batch_limit: int | None = None,
+) -> None:
     with _lock:
         if _state["running"]:
             raise RuntimeError(f"已有任务在运行：{_state['kind']} {_state['year']}".strip())
@@ -56,6 +64,8 @@ def start(kind: str, *, year: str = "") -> None:
                 "phase": "starting",
                 "message": "准备扫描…",
                 "started_at": time.time(),
+                "pending_at_start": pending_at_start,
+                "batch_limit": batch_limit,
             }
         )
 

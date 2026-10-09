@@ -57,13 +57,16 @@ IMG_8079.MOV   →  video  JSON  (video_id = …_IMG_8079_v)
 |------|------|
 | photo → JSON（`photo2json`） | ✅ 已有 |
 | video → JSON | ✅ `python tools/video2json/main.py`（OpenCV 元数据 + 关键帧 → `analyze_image`） |
+| 视频 ASR 字幕 | ✅ `video2json --backfill transcript` → `transcript`；sync 可搜；详情可读（需 ffmpeg + faster-whisper） |
 | 索引 `media_type` | ✅ sync 写入 `photo` / `video` / `audio`；Vue 列表可筛「视频」 |
 | Desk 预览 / 播放 | ✅ `/api/preview` 关键帧封面；`/api/media` 原片流 + 详情页内 `<video>` |
 | audio → JSON | 🔜 协议占位；工具未做 |
-| 索引 `media_type` | 🔜 随 video/audio sync 扩展 |
-| 问答 / 事件纳入视频 | 🔜 有 JSON + 索引后即可并行推进 |
+| 问答 / 事件纳入视频 | ✅ `media_type` 进索引与 evidence；关键词话术认视频/音频；事件详情带 media_type |
+| DaySlice（日历日切片） | ✅ `GET /api/day-slice` / `query.get_day_slice`（≠ outing events） |
 
-视频建议分层变厚（均可 backfill）：元数据与时长 → 封面/关键帧语义 →（可选）多帧/ASR。音频同理：元数据 → 可选 `transcript`。
+视频建议分层变厚（均可 backfill）：元数据与时长 → 封面/关键帧语义 →（可选）ASR 字幕。  
+ASR：`hub/shared/asr.py`（唯一入口）+ `video2json --backfill transcript` → `transcript`（默认 `status=draft`）写 JSON；用户确认 `confirmed` 后 sync 才进 `photo_terms` / 问答。短片 / Live Photo（默认 &lt;3s）可跳过。  
+音频同理：元数据 → 可选 `transcript`（pipeline 未做）。
 
 ## 明确不做
 

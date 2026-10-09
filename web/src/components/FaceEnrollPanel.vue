@@ -18,7 +18,9 @@
           :src="previewUrl"
           alt="face detect"
           class="stage-image"
+          title="点击放大预览"
           @load="updateDisplaySize"
+          @click="openLightbox"
         />
         <button
           v-for="face in faces"
@@ -36,8 +38,23 @@
           <span class="face-label">{{ face.index + 1 }}</span>
         </button>
       </div>
-      <p class="hint">点击人脸框选中，再点「加入人脸库」。灰色框质量不足，不能入库。</p>
+      <p class="hint">点击图片放大预览；点人脸框选中后再「加入人脸库」。灰色框质量不足，不能入库。</p>
     </div>
+
+    <el-dialog
+      v-model="lightboxVisible"
+      :title="photoId"
+      width="92vw"
+      top="3vh"
+      append-to-body
+      destroy-on-close
+      class="photo-lightbox-dialog"
+      @closed="lightboxVisible = false"
+    >
+      <div class="lightbox-body">
+        <img :src="previewUrl" class="lightbox-image" alt="preview" />
+      </div>
+    </el-dialog>
 
     <el-table
       v-if="faces.length"
@@ -201,6 +218,7 @@ const selectedIndex = ref(null)
 
 const registryPeople = ref([])
 const dialogVisible = ref(false)
+const lightboxVisible = ref(false)
 const enrolling = ref(false)
 const memberMode = ref('new')
 const enrollFaceIndex = ref(null)
@@ -309,6 +327,11 @@ function selectFace(face) {
   selectedIndex.value = face.index
 }
 
+function openLightbox() {
+  if (!props.sourcePath) return
+  lightboxVisible.value = true
+}
+
 function onTableSelect(row) {
   if (row) selectedIndex.value = row.index
 }
@@ -408,6 +431,7 @@ watch(
     detected.value = false
     detectError.value = ''
     selectedIndex.value = null
+    lightboxVisible.value = false
     if (props.hasPhotoFile) {
       loadRegistry()
       detectFaces()
@@ -458,6 +482,7 @@ watch(
   max-width: 100%;
   max-height: 420px;
   object-fit: contain;
+  cursor: zoom-in;
 }
 
 .face-box {
@@ -529,5 +554,36 @@ watch(
 .threshold-check {
   margin-left: 0.75rem;
   vertical-align: middle;
+}
+</style>
+
+<style>
+/* append-to-body：不能走 scoped */
+.photo-lightbox-dialog.el-dialog {
+  margin-bottom: 3vh;
+}
+
+.photo-lightbox-dialog .el-dialog__body {
+  padding: 0.5rem 1rem 1rem;
+  max-height: calc(94vh - 72px);
+  overflow: auto;
+}
+
+.photo-lightbox-dialog .lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+  background: #111;
+  border-radius: 8px;
+}
+
+.photo-lightbox-dialog .lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(94vh - 100px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 </style>

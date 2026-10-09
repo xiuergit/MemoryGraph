@@ -33,7 +33,7 @@ struct AskView: View {
             }
             .background(KidPalette.sky.ignoresSafeArea())
             .navigationTitle("问一问")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(KidPalette.sky, for: .navigationBar)
             .navigationDestination(item: $detailPhoto) { photo in
                 PhotoDetailView(photos: model.displayPhotos, initial: photo)
@@ -187,6 +187,22 @@ struct AskView: View {
                     .foregroundStyle(KidPalette.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                if !model.followUps.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("还可以问")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(KidPalette.teal)
+                        FlowFollowUpChips(chips: model.followUps) { chip in
+                            speaker.stop()
+                            if recognizer.isRecording {
+                                recognizer.cancel()
+                            }
+                            model.useFollowUp(chip, api: api)
+                        }
+                        .disabled(model.isLoading || recognizer.isRecording)
+                    }
+                }
+
                 Button {
                     speaker.toggle(model.answer)
                 } label: {
@@ -294,4 +310,76 @@ enum KidPalette {
     static let sky = Color(red: 0.90, green: 0.96, blue: 0.98)
     static let teal = Color(red: 0.15, green: 0.55, blue: 0.62)
     static let ink = Color(red: 0.16, green: 0.22, blue: 0.28)
+}
+
+/// 简单横向换行芯片（继续问）
+private struct FlowFollowUpChips: View {
+    let chips: [String]
+    let onTap: (String) -> Void
+
+    var body: some View {
+        FlexibleChipWrap(spacing: 8) {
+            ForEach(chips, id: \.self) { chip in
+                Button {
+                    onTap(chip)
+                } label: {
+                    Text(chip)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(KidPalette.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(KidPalette.teal.opacity(0.18))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// 轻量换行布局，避免依赖额外包。
+private struct FlexibleChipWrap: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+        for sub in subviews {
+            let size = sub.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                y += rowHeight + spacing
+                totalHeight = y
+                x = 0
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            totalWidth = max(totalWidth, x - spacing)
+            totalHeight = max(totalHeight, y + rowHeight)
+        }
+        return CGSize(width: totalWidth, height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for sub in subviews {
+            let size = sub.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            sub.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
 }

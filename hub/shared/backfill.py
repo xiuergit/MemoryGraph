@@ -116,6 +116,7 @@ def _resolve_image_path(data: dict, photos_dir: Path) -> Path | None:
 
 
 def _merge_vision(data: dict, vision: AnalysisResult) -> None:
+    """合并 AI 视觉字段。绝不改动 user_note / manual_note（旁白真源）。"""
     data["scene"] = vision["scene"]
     data["objects"] = vision["objects"]
     data["actions"] = vision["actions"]
@@ -125,6 +126,8 @@ def _merge_vision(data: dict, vision: AnalysisResult) -> None:
     vq = vision["quality"]
     quality["blur"] = vq["blur"]
     data["quality"] = quality
+    # 显式保留旁白（即便上游误塞字段也不覆盖）
+    # user_note / manual_note 不在本函数写入范围。
 
 
 def _merge_faces(

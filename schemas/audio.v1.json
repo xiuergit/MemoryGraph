@@ -22,8 +22,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["1.0"],
-      "description": "audio.v1 协议版本；与 photo / video 的编号彼此独立"
+      "enum": ["1.0", "1.1"],
+      "description": "audio.v1 协议版本；与 photo / video 的编号彼此独立。1.1 起可选 user_note / manual_note"
     },
     "audio_id": {
       "type": "string",
@@ -152,7 +152,7 @@
     },
     "transcript": {
       "type": "object",
-      "description": "可选；ASR 或人工转写。未做转写时省略整个字段",
+      "description": "可选；ASR 或人工转写。未做转写时省略整个字段。缺 status 视为 draft（不进问答索引）",
       "properties": {
         "text": { "type": "string" },
         "language": {
@@ -162,6 +162,11 @@
         "source": {
           "type": "string",
           "description": "来源，如 manual、whisper、omitted"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "confirmed"],
+          "description": "draft=自动/未确认草稿；confirmed=用户确认后才进问答索引。缺省按 draft"
         }
       },
       "required": ["text", "language", "source"],
@@ -205,6 +210,14 @@
     "manual_vision": {
       "type": "boolean",
       "description": "手改场景/物体/tags 等语义字段；自动语义 backfill 跳过（命名与 photo/video 同构）"
+    },
+    "user_note": {
+      "type": "string",
+      "description": "1.1+ 可选。用户旁白/配文；非 AI 的 scene。无则 \"\" 或省略"
+    },
+    "manual_note": {
+      "type": "boolean",
+      "description": "1.1+ 可选。已手写旁白；禁止自动 backfill 覆盖 user_note"
     },
     "manual_transcript": {
       "type": "boolean",

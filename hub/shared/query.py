@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from hub.shared.family import (
@@ -12,7 +12,7 @@ from hub.shared.family import (
     resolve_person,
     person_search_tokens,
 )
-from hub.shared.index_db import connect, init_db, list_timeline, search_photos
+from hub.shared.index_db import connect, init_db, list_day_media, list_timeline, search_photos
 
 SEASON_MONTHS: dict[str, tuple[int, ...]] = {
     "春": (3, 4, 5),
@@ -68,6 +68,122 @@ def is_place_alias_query(query: str) -> bool:
 
 
 # 证据图默认取全量时的安全上限（Web/iOS 分页展示）
+def get_day_slice(
+    conn: sqlite3.Connection,
+    day: str,
+    *,
+    person: str = "",
+    media_limit: int = 500,
+) -> dict[str, Any]:
+    """日历日切片：当日全部媒体 + 重叠出门事件 + 旁白 + 故事。
+
+    与 memory_events 的 outing 聚类不同：
+    - DaySlice = 日历日上的全部记忆（含单张日、视频、音频、user_note）
+    - Outing event = 同日 GPS/地名聚类且通常 ≥2 张的出门/回家事件
+
+    时间旅行应建在本函数之上，不要只用 list_events(day=…)。
+    """
+    day_key = str(day or "").strip()[:10]
+    if len(day_key) < 4:
+        return {
+            "day": day_key,
+            "person": person or "",
+            "found": False,
+            "error": "day 须为 YYYY / YYYY-MM / YYYY-MM-DD",
+            "media": [],
+            "media_count": 0,
+            "by_media_type": {"photo": 0, "video": 0, "audio": 0},
+            "user_notes": [],
+            "events": [],
+            "stories": [],
+        }
+
+    media = list_day_media(conn, day_key, person=person, limit=media_limit)
+    by_type = {"photo": 0, "video": 0, "audio": 0}
+    for m in media:
+        mt = str(m.get("media_type") or "photo")
+        if mt in by_type:
+            by_type[mt] += 1
+
+    # 旁白：从 JSON 读 user_note（仅当日已索引媒体）
+    user_notes: list[dict[str, Any]] = []
+    from hub.shared.config import MEMORY_DIR
+    import json
+    from pathlib import Path
+
+    mem_dir = Path(MEMORY_DIR)
+    for m in media:
+        pid = str(m.get("photo_id") or "")
+        if not pid:
+            continue
+        path = mem_dir / f"{pid}.json"
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        note = str(data.get("user_note") or "").strip()
+        if note:
+            user_notes.append(
+                {
+                    "photo_id": pid,
+                    "media_type": m.get("media_type") or "photo",
+                    "timestamp": m.get("timestamp") or "",
+                    "user_note": note,
+                }
+            )
+
+    from hub.shared.events import list_events, list_stories, get_story
+
+    events = list_events(
+        conn,
+        person=person,
+        day=day_key,
+        include_home=True,
+        limit=100,
+    )
+
+    # 故事：links 落在当日媒体，或 time_start/time_end 覆盖该日
+    media_ids = {str(m.get("photo_id") or "") for m in media}
+    stories_out: list[dict[str, Any]] = []
+    seen_stories: set[str] = set()
+    for st in list_stories(conn, limit=500):
+        sid = str(st.get("story_id") or "")
+        if not sid or sid in seen_stories:
+            continue
+        full = get_story(conn, sid) or st
+        linked = False
+        for link in full.get("links") or []:
+            if str(link.get("link_type") or "") == "photo" and str(link.get("link_id") or "") in media_ids:
+                linked = True
+                break
+        if not linked and len(day_key) >= 10:
+            start = str(full.get("time_start") or "")[:10]
+            end = str(full.get("time_end") or "")[:10] or start
+            if start and start <= day_key <= (end or start):
+                linked = True
+        if linked:
+            seen_stories.add(sid)
+            stories_out.append(full)
+
+    return {
+        "day": day_key,
+        "person": person or "",
+        "found": True,
+        "media": media,
+        "media_count": len(media),
+        "by_media_type": by_type,
+        "user_notes": user_notes,
+        "events": events,
+        "stories": stories_out,
+        "note": (
+            "DaySlice=日历日全部媒体+旁白+故事；"
+            "events 仅为同日 outing/home 聚类（可能漏单张日），二者不可互换"
+        ),
+    }
+
+
 PHOTO_FETCH_CAP = 5000
 
 # 口语关键词 → 索引里常见 objects/actions/tags
@@ -280,7 +396,63 @@ _KEYWORD_ALIASES: dict[str, tuple[str, ...]] = {
     "刷牙": ("刷牙", "刷牙中", "正在刷牙"),
     "洗手": ("洗手", "双手扶住洗手池", "双手扶住洗手池边", "双手抓着洗手盆边缘"),
     "睡觉": ("睡觉", "闭眼睡觉", "入睡"),
+    # 口语「过生日」≠ 索引里的「生日」；vision/tags 多用「生日/派对/蛋糕」
+    "过生日": (
+        "生日",
+        "过生日",
+        "庆生",
+        "庆祝生日",
+        "生日派对",
+        "生日聚会",
+        "生日蛋糕",
+        "birthday",
+    ),
+    "生日": (
+        "生日",
+        "过生日",
+        "庆生",
+        "庆祝生日",
+        "生日派对",
+        "生日聚会",
+        "生日蛋糕",
+        "birthday",
+    ),
+    "庆生": (
+        "生日",
+        "过生日",
+        "庆生",
+        "庆祝生日",
+        "生日派对",
+        "生日聚会",
+        "生日蛋糕",
+        "birthday",
+    ),
+    "生日派对": (
+        "生日",
+        "生日派对",
+        "生日聚会",
+        "庆祝生日",
+        "birthday",
+    ),
+    "生日聚会": (
+        "生日",
+        "生日派对",
+        "生日聚会",
+        "庆祝生日",
+        "birthday",
+    ),
 }
+
+# 问「过生日/生日」且带人名时：除关键词外，再并入 registry 生日周年日照片
+_BIRTHDAY_QUERY_KEYS = frozenset({
+    "过生日",
+    "生日",
+    "庆生",
+    "过生",
+    "生日派对",
+    "生日聚会",
+    "庆祝生日",
+})
 
 # 仅「人在做」类走 actions 精确匹配；物体/场景词仍用通用标签检索
 _ACTION_PRIORITY_KEYWORDS = frozenset({
@@ -362,6 +534,80 @@ def expand_keyword_aliases(query: str) -> list[str]:
     return out
 
 
+def _anniversary_mmdds(birth: date, *, radius_days: int = 1) -> list[str]:
+    """生日月日及前后若干天（用闰年锚定，避免 2/29）。"""
+    try:
+        base = date(2024, birth.month, birth.day)
+    except ValueError:
+        base = date(2024, birth.month, 28)
+    return [
+        (base + timedelta(days=delta)).strftime("%m-%d")
+        for delta in range(-radius_days, radius_days + 1)
+    ]
+
+
+def get_person_birthday_anniversary_photos(
+    conn: sqlite3.Connection,
+    *,
+    person: str,
+    limit: int = 5000,
+    radius_days: int = 1,
+) -> list[dict[str, Any]]:
+    """按 registry 生日月日（±radius）取该人照片，补全无「生日」字样的周年照。"""
+    who = (person or "").strip()
+    if not who:
+        return []
+    resolved = resolve_person(who)
+    if resolved is None:
+        return []
+    members = load_family_members()
+    member = members.get(resolved.person_id)
+    if member is None or member.birth_date is None:
+        return []
+
+    mmdds = _anniversary_mmdds(member.birth_date, radius_days=radius_days)
+    if limit <= 0:
+        limit = 5000
+
+    tokens = person_search_tokens(who) or [who]
+    token_clauses: list[str] = []
+    token_params: list[Any] = []
+    for token in tokens:
+        token_clauses.append("(pp2.person_name LIKE ? OR pp2.person_id LIKE ?)")
+        pattern = f"%{token}%"
+        token_params.extend([pattern, pattern])
+
+    day_clauses = " OR ".join(["substr(p.timestamp, 6, 5) = ?" for _ in mmdds])
+    params: list[Any] = [*mmdds, *token_params, limit]
+
+    rows = conn.execute(
+        f"""
+        SELECT
+            p.photo_id,
+            p.timestamp,
+            p.scene,
+            p.location,
+            p.location_coords,
+            p.source_path,
+            GROUP_CONCAT(DISTINCT pp.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
+        WHERE p.timestamp != ''
+          AND ({day_clauses})
+          AND EXISTS (
+            SELECT 1 FROM photo_people pp2
+            WHERE pp2.photo_id = p.photo_id
+              AND ({' OR '.join(token_clauses)})
+          )
+        GROUP BY p.photo_id
+        ORDER BY p.timestamp DESC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def search_photos_by_keywords(
     conn: sqlite3.Connection,
     *,
@@ -372,6 +618,7 @@ def search_photos_by_keywords(
     """关键词检索；返回 (展示列表, 命中总数)。
 
     地名别名（山西/老家/忻州）走省市区字段；骑车类走 actions 精确词。
+    「过生日/生日」且带人名时，额外并入生日周年日照片（排在前面）。
     """
     q = (query or "").strip()
     if not q:
@@ -412,11 +659,100 @@ def search_photos_by_keywords(
             reverse=True,
         )
 
+    # 「面面过生日」：周年日照片优先，避免只冒出朋友派对
+    if person and q in _BIRTHDAY_QUERY_KEYS:
+        anniversary = get_person_birthday_anniversary_photos(
+            conn, person=person, limit=fetch_cap
+        )
+        if anniversary:
+            seen: dict[str, dict[str, Any]] = {}
+            ordered: list[dict[str, Any]] = []
+            for photo in anniversary + all_photos:
+                pid = str(photo.get("photo_id") or "")
+                if not pid or pid in seen:
+                    continue
+                seen[pid] = photo
+                ordered.append(photo)
+            all_photos = ordered[:fetch_cap]
+
     total = len(all_photos)
     # limit<=0：返回全部（fetch_cap 内）；勿写成 max(1, 0)=1
     if limit <= 0:
         return all_photos, total
     return all_photos[:limit], total
+
+
+def search_photos_by_date_range(
+    conn: sqlite3.Connection,
+    *,
+    person: str = "",
+    day_from: str = "",
+    day_to: str = "",
+    limit: int = 40,
+) -> tuple[list[dict[str, Any]], int]:
+    """按拍摄日窗检索照片（节假日「相关照片」用日期，不靠 tags 写「国庆」）。"""
+    day_from = (day_from or "").strip()[:10]
+    day_to = (day_to or "").strip()[:10]
+    if not day_from and not day_to:
+        return [], 0
+
+    fetch_cap = PHOTO_FETCH_CAP if limit <= 0 else max(1, min(int(limit), PHOTO_FETCH_CAP))
+    clauses = ["p.timestamp != ''"]
+    params: list[Any] = []
+    if day_from:
+        clauses.append("substr(p.timestamp, 1, 10) >= ?")
+        params.append(day_from)
+    if day_to:
+        clauses.append("substr(p.timestamp, 1, 10) <= ?")
+        params.append(day_to)
+
+    if person:
+        tokens = person_search_tokens(person) or [person]
+        token_clauses: list[str] = []
+        for token in tokens:
+            token_clauses.append("(pp.person_name LIKE ? OR pp.person_id LIKE ?)")
+            pattern = f"%{token}%"
+            params.extend([pattern, pattern])
+        clauses.append(
+            f"""
+            EXISTS (
+                SELECT 1 FROM photo_people pp
+                WHERE pp.photo_id = p.photo_id
+                  AND ({' OR '.join(token_clauses)})
+            )
+            """
+        )
+
+    where = " AND ".join(clauses)
+    total = int(
+        conn.execute(
+            f"SELECT COUNT(DISTINCT p.photo_id) FROM photos p WHERE {where}",
+            params,
+        ).fetchone()[0]
+        or 0
+    )
+    rows = conn.execute(
+        f"""
+        SELECT
+            p.photo_id,
+            IFNULL(p.media_type, 'photo') AS media_type,
+            p.timestamp,
+            p.scene,
+            p.location,
+            p.location_coords,
+            p.source_path,
+            GROUP_CONCAT(DISTINCT pp.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
+        WHERE {where}
+        GROUP BY p.photo_id
+        ORDER BY p.timestamp DESC
+        LIMIT ?
+        """,
+        (*params, fetch_cap),
+    ).fetchall()
+    photos = [dict(row) for row in rows]
+    return photos, total
 
 
 def search_photos_by_place(
@@ -1260,18 +1596,27 @@ def get_outings_by_period(
     person: str = "",
     year: str = "",
     season: str = "",
+    holiday: str = "",
+    day_from: str = "",
+    day_to: str = "",
+    period_label: str = "",
     limit: int = 40,
 ) -> dict[str, Any]:
-    """按年 / 季列出 outing 事件（不含家）。"""
+    """按年 / 季 / 节假日日期窗列出 outing 事件（不含家）。"""
     from hub.shared.events import count_events, list_events
 
     year = (year or "").strip()
     season = (season or "").strip()
-    months = SEASON_MONTHS.get(season)
-    day = year if year else ""
+    holiday = (holiday or "").strip()
+    day_from = (day_from or "").strip()[:10]
+    day_to = (day_to or "").strip()[:10]
+    months = None if (day_from or day_to) else SEASON_MONTHS.get(season)
+    day = "" if (day_from or day_to) else (year if year else "")
     events = list_events(
         conn,
         day=day,
+        day_from=day_from,
+        day_to=day_to,
         person=person,
         include_home=False,
         months=months,
@@ -1280,21 +1625,34 @@ def get_outings_by_period(
     total = count_events(
         conn,
         day=day,
+        day_from=day_from,
+        day_to=day_to,
         person=person,
         include_home=False,
         months=months,
     )
-    period_bits = []
-    if year:
-        period_bits.append(f"{year}年")
-    if season:
-        period_bits.append(f"{season}季")
+    label = (period_label or "").strip()
+    if not label:
+        period_bits = []
+        if holiday and year:
+            period_bits.append(f"{year}年{holiday}")
+        elif holiday:
+            period_bits.append(holiday)
+        else:
+            if year:
+                period_bits.append(f"{year}年")
+            if season:
+                period_bits.append(f"{season}季")
+        label = "".join(period_bits) or "全部时段"
     return {
         "found": True,
         "person": person,
         "year": year,
         "season": season,
-        "period_label": "".join(period_bits) or "全部时段",
+        "holiday": holiday,
+        "day_from": day_from,
+        "day_to": day_to,
+        "period_label": label,
         "events": events,
         "total": total,
         "returned": len(events),
@@ -1306,24 +1664,69 @@ def get_person_place_rank(
     *,
     person: str,
     limit: int = 10,
+    companions: list[str] | None = None,
+    since: str = "",
 ) -> dict[str, Any]:
-    """某人全时期按地点聚合照片数与天数（常去哪里）。"""
+    """某人按地点聚合照片数与天数（常去哪里 / 去过哪些地方）。
+
+    companions: 须同框的其他成员（如「和抱补去了哪些地方」）。
+    since: YYYY-MM-DD，有则只统计该日及之后（需有 timestamp）。
+    """
     found = _find_member(person)
     if found is None:
         return {"found": False, "person": person}
 
     _, member = found
-    pf = [member.name, member.person_id]
+    companion_names: list[str] = []
+    companion_exists: list[str] = []
+    companion_params: list[Any] = []
+    for raw in companions or []:
+        name = str(raw or "").strip()
+        if not name:
+            continue
+        c_found = _find_member(name)
+        if c_found is None:
+            return {"found": False, "person": person, "unknown": name}
+        _, c_member = c_found
+        companion_names.append(c_member.name)
+        companion_exists.append(
+            """
+            EXISTS (
+                SELECT 1 FROM photo_people ppc
+                WHERE ppc.photo_id = p.photo_id
+                  AND (ppc.person_name = ? OR ppc.person_id = ?)
+            )
+            """
+        )
+        companion_params.extend([c_member.name, c_member.person_id])
+
+    since_day = (since or "").strip()
+    time_clause = ""
+    time_params: list[Any] = []
+    if since_day:
+        time_clause = " AND p.timestamp != '' AND p.timestamp >= ? "
+        time_params = [since_day]
+
+    companion_clause = ""
+    if companion_exists:
+        companion_clause = " AND " + " AND ".join(companion_exists)
+
+    base_where = f"""
+        (pp.person_name = ? OR pp.person_id = ?)
+        {companion_clause}
+        {time_clause}
+    """
+    pf: list[Any] = [member.name, member.person_id, *companion_params, *time_params]
 
     rows = conn.execute(
-        """
+        f"""
         SELECT
             p.location AS location,
             COUNT(*) AS photo_count,
             COUNT(DISTINCT substr(p.timestamp, 1, 10)) AS day_count
         FROM photos p
         JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE (pp.person_name = ? OR pp.person_id = ?)
+        WHERE {base_where}
           AND p.location != ''
         GROUP BY p.location
         ORDER BY photo_count DESC, day_count DESC
@@ -1333,29 +1736,29 @@ def get_person_place_rank(
     ).fetchall()
 
     matched_photos = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) FROM photos p
         JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE (pp.person_name = ? OR pp.person_id = ?)
+        WHERE {base_where}
           AND p.location != ''
         """,
         pf,
     ).fetchone()[0]
 
     total_photos = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) FROM photos p
         JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE pp.person_name = ? OR pp.person_id = ?
+        WHERE {base_where}
         """,
         pf,
     ).fetchone()[0]
 
     total_places = conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT p.location) FROM photos p
         JOIN photo_people pp ON pp.photo_id = p.photo_id
-        WHERE (pp.person_name = ? OR pp.person_id = ?)
+        WHERE {base_where}
           AND p.location != ''
         """,
         pf,
@@ -1364,6 +1767,8 @@ def get_person_place_rank(
     return {
         "found": True,
         "person": member.name,
+        "companions": companion_names,
+        "since": since_day,
         "total_photos": total_photos,
         "matched_photos": matched_photos,
         "total_places": total_places,
@@ -1731,7 +2136,10 @@ def get_companions_at_place(
             SELECT
                 pp2.person_name AS name,
                 pp2.person_id AS person_id,
-                COUNT(DISTINCT p.photo_id) AS photo_count
+                COUNT(DISTINCT p.photo_id) AS photo_count,
+                GROUP_CONCAT(DISTINCT CASE
+                    WHEN p.timestamp != '' THEN substr(p.timestamp, 1, 10)
+                END) AS visit_days_raw
             FROM photos p
             JOIN photo_people pp ON pp.photo_id = p.photo_id
             JOIN photo_people pp2 ON pp2.photo_id = p.photo_id
@@ -1766,7 +2174,10 @@ def get_companions_at_place(
             SELECT
                 pp2.person_name AS name,
                 pp2.person_id AS person_id,
-                COUNT(DISTINCT p.photo_id) AS photo_count
+                COUNT(DISTINCT p.photo_id) AS photo_count,
+                GROUP_CONCAT(DISTINCT CASE
+                    WHEN p.timestamp != '' THEN substr(p.timestamp, 1, 10)
+                END) AS visit_days_raw
             FROM photos p
             JOIN photo_people pp2 ON pp2.photo_id = p.photo_id
             WHERE {place_filter}
@@ -1788,15 +2199,26 @@ def get_companions_at_place(
         """
         count_params = [*place_params]
 
-    companions = [
-        {
-            "name": row["name"],
-            "person_id": row["person_id"],
-            "photo_count": int(row["photo_count"] or 0),
-        }
-        for row in companion_rows
-        if not str(row["person_id"] or "").startswith("unk_")
-    ]
+    def _visit_days_from_row(raw: Any) -> list[str]:
+        if not raw:
+            return []
+        days = {part.strip() for part in str(raw).split(",") if part.strip()}
+        return sorted(days)
+
+    companions = []
+    for row in companion_rows:
+        if str(row["person_id"] or "").startswith("unk_"):
+            continue
+        visit_days = _visit_days_from_row(row["visit_days_raw"])
+        companions.append(
+            {
+                "name": row["name"],
+                "person_id": row["person_id"],
+                "photo_count": int(row["photo_count"] or 0),
+                "visit_days": visit_days,
+                "day_count": len(visit_days),
+            }
+        )
 
     fetch_limit = limit if limit > 0 else PHOTO_FETCH_CAP
     photo_rows = conn.execute(
@@ -1837,9 +2259,11 @@ def get_person_companion_rank(
     person: str,
     limit: int = 12,
     photo_limit: int = 0,
+    since: str = "",
 ) -> dict[str, Any]:
-    """某人全库同框人物排行（按合影张数）。
+    """某人同框人物排行（按合影张数）。
 
+    since: YYYY-MM-DD，有则只统计该日及之后（需有 timestamp）；空则全库。
     photo_limit<=0：与第一名同框的证据图全量（PHOTO_FETCH_CAP 内）。
     """
     found = _find_member(person)
@@ -1849,9 +2273,15 @@ def get_person_companion_rank(
     anchor_id, member = found
     anchor_name = member.name
     rank_limit = max(1, min(int(limit or 12), 50))
+    since_day = (since or "").strip()
+    time_clause = ""
+    time_params: list[Any] = []
+    if since_day:
+        time_clause = " AND p.timestamp != '' AND p.timestamp >= ? "
+        time_params = [since_day]
 
     companion_rows = conn.execute(
-        """
+        f"""
         SELECT
             pp2.person_name AS name,
             pp2.person_id AS person_id,
@@ -1863,11 +2293,12 @@ def get_person_companion_rank(
           AND pp2.person_name != ''
           AND pp2.person_id != ?
           AND pp2.person_name != ?
+          {time_clause}
         GROUP BY pp2.person_id, pp2.person_name
         ORDER BY photo_count DESC, name ASC
         LIMIT ?
         """,
-        (anchor_name, anchor_id, anchor_id, anchor_name, rank_limit),
+        (anchor_name, anchor_id, anchor_id, anchor_name, *time_params, rank_limit),
     ).fetchall()
 
     companions = [
@@ -1883,11 +2314,12 @@ def get_person_companion_rank(
     # 含至少一名其他已识别成员的合影总数
     total_with = int(
         conn.execute(
-            """
+            f"""
             SELECT COUNT(DISTINCT p.photo_id)
             FROM photos p
             JOIN photo_people pp ON pp.photo_id = p.photo_id
             WHERE (pp.person_name = ? OR pp.person_id = ?)
+              {time_clause}
               AND EXISTS (
                 SELECT 1 FROM photo_people pp2
                 WHERE pp2.photo_id = p.photo_id
@@ -1897,7 +2329,7 @@ def get_person_companion_rank(
                   AND pp2.person_id NOT LIKE 'unk_%'
               )
             """,
-            (anchor_name, anchor_id, anchor_id, anchor_name),
+            (anchor_name, anchor_id, *time_params, anchor_id, anchor_name),
         ).fetchone()[0]
         or 0
     )
@@ -1908,7 +2340,7 @@ def get_person_companion_rank(
     if top_companion:
         fetch_limit = photo_limit if photo_limit > 0 else PHOTO_FETCH_CAP
         photo_rows = conn.execute(
-            """
+            f"""
             SELECT
                 p.photo_id,
                 p.timestamp,
@@ -1923,6 +2355,7 @@ def get_person_companion_rank(
             LEFT JOIN photo_people pp_all ON pp_all.photo_id = p.photo_id
             WHERE (pp.person_name = ? OR pp.person_id = ?)
               AND (pp2.person_name = ? OR pp2.person_id = ?)
+              {time_clause}
             GROUP BY p.photo_id
             ORDER BY p.timestamp DESC
             LIMIT ?
@@ -1932,6 +2365,7 @@ def get_person_companion_rank(
                 anchor_id,
                 top_companion,
                 top_companion_id,
+                *time_params,
                 fetch_limit,
             ),
         ).fetchall()
@@ -1946,6 +2380,7 @@ def get_person_companion_rank(
         "photo_count": total_with,
         "photos": photos,
         "shown": len(photos),
+        "since": since_day,
     }
 
 
@@ -2554,6 +2989,203 @@ def get_term_first_photo(
     }
 
 
+def get_period_side_facts(
+    conn: sqlite3.Connection,
+    *,
+    person: str = "",
+    day_from: str = "",
+    day_to: str = "",
+    events: list[dict[str, Any]] | None = None,
+    photo_limit: int = 40,
+) -> dict[str, Any]:
+    """时段内旁证：同框人物、emotion 词频、样例照片（供 period_recap / 追问）。"""
+    day_from = (day_from or "").strip()[:10]
+    day_to = (day_to or "").strip()[:10]
+    photo_limit = max(1, min(int(photo_limit or 40), PHOTO_FETCH_CAP))
+
+    time_clause = ""
+    time_params: list[Any] = []
+    if day_from and day_to:
+        time_clause = (
+            " AND p.timestamp != '' "
+            " AND substr(p.timestamp, 1, 10) >= ? "
+            " AND substr(p.timestamp, 1, 10) <= ? "
+        )
+        time_params = [day_from, day_to]
+    elif day_from:
+        time_clause = " AND p.timestamp != '' AND substr(p.timestamp, 1, 10) >= ? "
+        time_params = [day_from]
+    elif day_to:
+        time_clause = " AND p.timestamp != '' AND substr(p.timestamp, 1, 10) <= ? "
+        time_params = [day_to]
+
+    person_clause = ""
+    person_params: list[Any] = []
+    anchor_name = ""
+    anchor_id = ""
+    if person:
+        found = _find_member(person)
+        if found is None:
+            return {
+                "found": False,
+                "person": person,
+                "companions": [],
+                "emotion_breakdown": [],
+                "with_emotion": 0,
+                "photos": [],
+                "photo_count": 0,
+            }
+        anchor_id, member = found
+        anchor_name = member.name
+        person_clause = """
+            AND EXISTS (
+                SELECT 1 FROM photo_people pp0
+                WHERE pp0.photo_id = p.photo_id
+                  AND (pp0.person_name = ? OR pp0.person_id = ?)
+            )
+        """
+        person_params = [anchor_name, anchor_id]
+
+    companion_rows = conn.execute(
+        f"""
+        SELECT
+            pp2.person_name AS name,
+            pp2.person_id AS person_id,
+            COUNT(DISTINCT p.photo_id) AS photo_count
+        FROM photos p
+        JOIN photo_people pp2 ON pp2.photo_id = p.photo_id
+        WHERE pp2.person_name != ''
+          {person_clause}
+          {time_clause}
+          {"AND pp2.person_id != ? AND pp2.person_name != ?" if anchor_id else ""}
+        GROUP BY pp2.person_id, pp2.person_name
+        ORDER BY photo_count DESC, name ASC
+        LIMIT 20
+        """,
+        (
+            *person_params,
+            *time_params,
+            *([anchor_id, anchor_name] if anchor_id else []),
+        ),
+    ).fetchall()
+
+    companions: list[dict[str, Any]] = []
+    for row in companion_rows:
+        if str(row["person_id"] or "").startswith("unk_"):
+            continue
+        companions.append(
+            {
+                "name": row["name"],
+                "person_id": row["person_id"],
+                "photo_count": int(row["photo_count"] or 0),
+            }
+        )
+
+    # 事件 people_json 兜底（无时段照片命中时）
+    if not companions and events:
+        counts: dict[str, int] = {}
+        for ev in events:
+            for name in ev.get("people") or []:
+                n = str(name or "").strip()
+                if not n or n.startswith("unk_"):
+                    continue
+                if anchor_name and n == anchor_name:
+                    continue
+                counts[n] = counts.get(n, 0) + 1
+        companions = [
+            {"name": n, "person_id": "", "photo_count": c}
+            for n, c in sorted(counts.items(), key=lambda x: (-x[1], x[0]))[:20]
+        ]
+
+    emotion_rows = conn.execute(
+        f"""
+        SELECT t.term, COUNT(DISTINCT p.photo_id) AS cnt
+        FROM photos p
+        JOIN photo_terms t ON t.photo_id = p.photo_id
+        WHERE t.term_type = 'emotion'
+          {person_clause}
+          {time_clause}
+        GROUP BY t.term
+        ORDER BY cnt DESC
+        LIMIT 8
+        """,
+        (*person_params, *time_params),
+    ).fetchall()
+    emotion_breakdown = [
+        {"term": row["term"], "count": int(row["cnt"] or 0)} for row in emotion_rows
+    ]
+    with_emotion = conn.execute(
+        f"""
+        SELECT COUNT(DISTINCT p.photo_id) FROM photos p
+        WHERE EXISTS (
+            SELECT 1 FROM photo_terms t
+            WHERE t.photo_id = p.photo_id AND t.term_type = 'emotion'
+        )
+          {person_clause}
+          {time_clause}
+        """,
+        (*person_params, *time_params),
+    ).fetchone()[0]
+
+    photo_count = conn.execute(
+        f"""
+        SELECT COUNT(DISTINCT p.photo_id) FROM photos p
+        WHERE 1=1
+          {person_clause}
+          {time_clause}
+        """,
+        (*person_params, *time_params),
+    ).fetchone()[0]
+
+    photo_rows = conn.execute(
+        f"""
+        SELECT
+            p.photo_id,
+            p.timestamp,
+            p.location,
+            p.location_coords,
+            p.scene,
+            p.source_path,
+            GROUP_CONCAT(DISTINCT pp_all.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp_all ON pp_all.photo_id = p.photo_id
+        WHERE 1=1
+          {person_clause}
+          {time_clause}
+        GROUP BY p.photo_id
+        ORDER BY p.timestamp DESC
+        LIMIT ?
+        """,
+        (*person_params, *time_params, photo_limit),
+    ).fetchall()
+    photos = [
+        {
+            "photo_id": r["photo_id"],
+            "timestamp": r["timestamp"] or "",
+            "location": r["location"] or "",
+            "location_coords": r["location_coords"] or "",
+            "scene": r["scene"] or "",
+            "source_path": r["source_path"] or "",
+            "people": r["people"] or "",
+        }
+        for r in photo_rows
+    ]
+
+    return {
+        "found": True,
+        "person": anchor_name or person,
+        "day_from": day_from,
+        "day_to": day_to,
+        "companions": companions,
+        "companion_count": len(companions),
+        "emotion_breakdown": emotion_breakdown,
+        "with_emotion": int(with_emotion or 0),
+        "photos": photos,
+        "photo_count": int(photo_count or 0),
+        "shown": len(photos),
+    }
+
+
 def gather_facts(
     conn: sqlite3.Connection,
     intent: str,
@@ -2584,10 +3216,21 @@ def gather_facts(
         query = str(params.get("query", "")).strip()
         # limit<=0：返回全部命中（fetch_cap 内）；界面分页
         show_limit = limit if limit > 0 else PHOTO_FETCH_CAP
-        photos, total = search_photos_by_keywords(
-            conn, person=person, query=query, limit=show_limit
-        )
-        return {
+        day_from = str(params.get("day_from") or "").strip()
+        day_to = str(params.get("day_to") or "").strip()
+        if day_from or day_to:
+            photos, total = search_photos_by_date_range(
+                conn,
+                person=person,
+                day_from=day_from,
+                day_to=day_to,
+                limit=show_limit,
+            )
+        else:
+            photos, total = search_photos_by_keywords(
+                conn, person=person, query=query, limit=show_limit
+            )
+        result = {
             "intent": intent,
             "person": person,
             "query": query,
@@ -2595,6 +3238,13 @@ def gather_facts(
             "photo_count": total,
             "shown": len(photos),
         }
+        if day_from or day_to:
+            result["day_from"] = day_from
+            result["day_to"] = day_to
+            result["holiday"] = str(params.get("holiday") or "")
+            result["year"] = str(params.get("year") or "")
+            result["period_label"] = str(params.get("period_label") or "")
+        return result
 
     if intent == "keyword_first":
         query = str(params.get("query", "")).strip()
@@ -2651,8 +3301,24 @@ def gather_facts(
 
     if intent == "person_places_visited":
         visit_limit = int(params.get("limit", 20))
-        rank = get_person_place_rank(conn, person=person, limit=visit_limit)
-        return {"intent": intent, "person": person, **rank}
+        companions = params.get("companions") or []
+        if isinstance(companions, str):
+            companions = [companions]
+        since = str(params.get("since") or "").strip()
+        period_label = str(params.get("period_label") or "").strip()
+        rank = get_person_place_rank(
+            conn,
+            person=person,
+            limit=visit_limit,
+            companions=[str(c) for c in companions if c],
+            since=since,
+        )
+        out = {"intent": intent, "person": person, **rank}
+        if period_label:
+            out["period_label"] = period_label
+        elif since:
+            out["period_label"] = f"自 {since} 起"
+        return out
 
     if intent == "person_emotion_place_rank":
         emo_limit = int(params.get("limit", 10))
@@ -2698,23 +3364,34 @@ def gather_facts(
             place_query=place,
             limit=photo_limit,
         )
-        return {
+        out: dict[str, Any] = {
             "intent": intent,
             "person": person,
             "place": place,
             **result,
         }
+        if params.get("focus"):
+            out["focus"] = params["focus"]
+        return out
 
     if intent == "person_companion_rank":
         rank_limit = int(params.get("limit", 12))
         photo_limit = int(params.get("photo_limit", 0))
+        since = str(params.get("since") or "").strip()
+        period_label = str(params.get("period_label") or "").strip()
         result = get_person_companion_rank(
             conn,
             person=person,
             limit=rank_limit,
             photo_limit=photo_limit,
+            since=since,
         )
-        return {"intent": intent, "person": person, **result}
+        out = {"intent": intent, "person": person, **result}
+        if period_label:
+            out["period_label"] = period_label
+        elif since:
+            out["period_label"] = f"自 {since} 起"
+        return out
 
     if intent == "person_at_place":
         place = str(params.get("place", ""))
@@ -2797,9 +3474,126 @@ def gather_facts(
             person=person,
             year=str(params.get("year", "")),
             season=str(params.get("season", "")),
+            holiday=str(params.get("holiday", "")),
+            day_from=str(params.get("day_from", "")),
+            day_to=str(params.get("day_to", "")),
+            period_label=str(params.get("period_label", "")),
             limit=limit,
         )
         return {"intent": intent, **result}
+
+    if intent == "period_recap":
+        day_from = str(params.get("day_from", ""))
+        day_to = str(params.get("day_to", ""))
+        year = str(params.get("year", ""))
+        season = str(params.get("season", ""))
+        holiday = str(params.get("holiday", ""))
+        period_label = str(params.get("period_label", "")) or "最近"
+        if day_from or day_to or year or season or holiday:
+            outings = get_outings_by_period(
+                conn,
+                person=person,
+                year=year,
+                season=season,
+                holiday=holiday,
+                day_from=day_from,
+                day_to=day_to,
+                period_label=period_label,
+                limit=limit,
+            )
+        else:
+            from hub.shared.events import list_events
+
+            events = list_events(
+                conn,
+                person=person,
+                include_home=False,
+                limit=limit if limit > 0 else 10,
+            )
+            outings = {
+                "found": True,
+                "person": person,
+                "year": "",
+                "season": "",
+                "holiday": "",
+                "day_from": "",
+                "day_to": "",
+                "period_label": period_label,
+                "events": events,
+                "total": len(events),
+                "returned": len(events),
+            }
+            # 用事件日界补旁证窗
+            days = sorted(
+                {
+                    str(ev.get("day") or "").strip()[:10]
+                    for ev in events
+                    if str(ev.get("day") or "").strip()
+                }
+            )
+            if days:
+                day_from, day_to = days[0], days[-1]
+                outings["day_from"] = day_from
+                outings["day_to"] = day_to
+        side = get_period_side_facts(
+            conn,
+            person=person,
+            day_from=str(outings.get("day_from") or day_from),
+            day_to=str(outings.get("day_to") or day_to),
+            events=outings.get("events") or [],
+            photo_limit=int(params.get("photo_limit", 40) or 40),
+        )
+        return {
+            "intent": intent,
+            "want_emotion": bool(params.get("want_emotion", True)),
+            "want_companions": bool(params.get("want_companions", True)),
+            **outings,
+            "companions": side.get("companions") or [],
+            "companion_count": side.get("companion_count") or 0,
+            "emotion_breakdown": side.get("emotion_breakdown") or [],
+            "with_emotion": side.get("with_emotion") or 0,
+            "photos": side.get("photos") or [],
+            "photo_count": side.get("photo_count") or 0,
+            "shown": side.get("shown") or 0,
+        }
+
+    if intent in ("period_emotion", "period_companions"):
+        day_from = str(params.get("day_from", ""))
+        day_to = str(params.get("day_to", ""))
+        period_label = str(params.get("period_label", ""))
+        side = get_period_side_facts(
+            conn,
+            person=person,
+            day_from=day_from,
+            day_to=day_to,
+            photo_limit=int(params.get("photo_limit", 40) or 40),
+        )
+        return {
+            "intent": intent,
+            "person": side.get("person") or person,
+            "period_label": period_label,
+            "day_from": day_from,
+            "day_to": day_to,
+            "companions": side.get("companions") or [],
+            "companion_count": side.get("companion_count") or 0,
+            "emotion_breakdown": side.get("emotion_breakdown") or [],
+            "with_emotion": side.get("with_emotion") or 0,
+            "photos": side.get("photos") or [],
+            "photo_count": side.get("photo_count") or 0,
+            "shown": side.get("shown") or 0,
+            "found": side.get("found", True),
+        }
+
+    if intent == "explain_basis":
+        # 事实由 agent 注入 last turn；此处仅占位
+        return {
+            "intent": intent,
+            "person": person,
+            "period_label": str(params.get("period_label", "")),
+            "last_intent": str(params.get("last_intent", "")),
+            "last_answer": str(params.get("last_answer", "")),
+            "basis_summary": params.get("basis_summary") or {},
+        }
 
     if intent == "person_home_timeline":
         result = get_person_home_timeline(conn, person=person)

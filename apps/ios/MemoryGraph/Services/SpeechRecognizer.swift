@@ -21,6 +21,7 @@ final class SpeechRecognizer: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    private var taskHint: SFSpeechRecognitionTaskHint = .search
 
     var isUsable: Bool {
         authStatus == .authorized && (recognizer?.isAvailable ?? false)
@@ -42,8 +43,10 @@ final class SpeechRecognizer: ObservableObject {
         }
     }
 
-    func start() {
+    /// - Parameter taskHint: 问问用 `.search`；旁白/长句用 `.dictation`。
+    func start(taskHint: SFSpeechRecognitionTaskHint = .search) {
         errorMessage = nil
+        self.taskHint = taskHint
         guard authStatus == .authorized || authStatus == .unknown else { return }
 
         Task {
@@ -107,7 +110,7 @@ final class SpeechRecognizer: ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        request.taskHint = .search
+        request.taskHint = taskHint
         request.contextualStrings = KidSpeechVocabulary.contextualPhrases
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true

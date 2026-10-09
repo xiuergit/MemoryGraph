@@ -281,9 +281,20 @@ def _term_rows(photo_id: str, data: dict[str, Any]) -> list[tuple]:
     scene = str(data.get("scene", "")).strip()
     if scene:
         rows.append((photo_id, scene, "scene"))
+    user_note = str(data.get("user_note") or "").strip()
+    if user_note:
+        rows.append((photo_id, user_note[:8000], "user_note"))
     weather = weather_from_dict(data.get("weather") if isinstance(data.get("weather"), dict) else None)
     if weather and weather.get("condition"):
         rows.append((photo_id, weather["condition"], "weather"))
+    # 仅 confirmed 字幕进索引；draft / 缺 status 不参与问答检索
+    transcript = data.get("transcript")
+    if isinstance(transcript, dict):
+        from hub.shared.schema import transcript_status
+
+        text = str(transcript.get("text") or "").strip()
+        if text and transcript_status(transcript) == "confirmed":
+            rows.append((photo_id, text[:8000], "transcript"))
     return rows
 
 
@@ -510,6 +521,7 @@ def search_photos(
     sql = f"""
         SELECT
             p.photo_id,
+            IFNULL(p.media_type, 'photo') AS media_type,
             p.timestamp,
             p.scene,
             p.location,
@@ -536,6 +548,7 @@ def list_timeline(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str
         """
         SELECT
             p.photo_id,
+            IFNULL(p.media_type, 'photo') AS media_type,
             p.timestamp,
             p.scene,
             p.location,
@@ -548,6 +561,69 @@ def list_timeline(conn: sqlite3.Connection, *, limit: int = 20) -> list[dict[str
         LIMIT ?
         """,
         (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_day_media(
+    conn: sqlite3.Connection,
+    day: str,
+    *,
+    person: str = "",
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """按日历日列出全部媒体（photo/video/audio），不限 outing 聚类。
+
+    day: YYYY-MM-DD（也接受 YYYY-MM / YYYY 前缀）。
+    这是 DaySlice 的媒体层；不等于 memory_events 出门事件。
+    """
+    day_key = str(day or "").strip()[:10]
+    if not day_key:
+        return []
+    if limit <= 0:
+        limit = 500
+
+    clauses = ["p.timestamp != ''", "substr(p.timestamp, 1, ?) = ?"]
+    params: list[Any] = [len(day_key), day_key]
+
+    if person:
+        tokens = person_search_tokens(person)
+        if not tokens:
+            tokens = [person]
+        token_clauses: list[str] = []
+        for token in tokens:
+            token_clauses.append("(pp2.person_name LIKE ? OR pp2.person_id LIKE ?)")
+            pattern = f"%{token}%"
+            params.extend([pattern, pattern])
+        clauses.append(
+            f"""
+            EXISTS (
+                SELECT 1 FROM photo_people pp2
+                WHERE pp2.photo_id = p.photo_id
+                  AND ({' OR '.join(token_clauses)})
+            )
+            """
+        )
+
+    rows = conn.execute(
+        f"""
+        SELECT
+            p.photo_id,
+            IFNULL(p.media_type, 'photo') AS media_type,
+            p.timestamp,
+            p.scene,
+            p.location,
+            p.location_coords,
+            p.source_path,
+            GROUP_CONCAT(DISTINCT pp.person_name) AS people
+        FROM photos p
+        LEFT JOIN photo_people pp ON pp.photo_id = p.photo_id
+        WHERE {' AND '.join(clauses)}
+        GROUP BY p.photo_id
+        ORDER BY p.timestamp ASC, p.photo_id ASC
+        LIMIT ?
+        """,
+        (*params, limit),
     ).fetchall()
     return [dict(row) for row in rows]
 

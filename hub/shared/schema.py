@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from hub.shared.config import SCHEMA_VERSION, VIDEO_SCHEMA_VERSION
 
@@ -31,6 +31,43 @@ class Person(TypedDict, total=False):
 class Quality(TypedDict):
     blur: bool
     face_detected: bool
+
+
+class Transcript(TypedDict):
+    text: str
+    language: str
+    source: str
+    # draft | confirmed；缺省按 draft（不进问答）
+    status: NotRequired[str]
+
+
+def transcript_status(transcript: dict[str, Any] | None) -> str:
+    """缺 status 或非法值一律 draft。"""
+    if not isinstance(transcript, dict):
+        return "draft"
+    status = str(transcript.get("status") or "").strip().lower()
+    return "confirmed" if status == "confirmed" else "draft"
+
+
+def is_transcript_confirmed(data: dict[str, Any]) -> bool:
+    tr = data.get("transcript")
+    return transcript_status(tr if isinstance(tr, dict) else None) == "confirmed"
+
+
+def make_transcript(
+    text: str,
+    *,
+    language: str = "",
+    source: str = "whisper",
+    status: str = "draft",
+) -> Transcript:
+    st = "confirmed" if str(status).strip().lower() == "confirmed" else "draft"
+    return Transcript(
+        text=str(text or "").strip(),
+        language=str(language or ""),
+        source=str(source or "whisper"),
+        status=st,
+    )
 
 
 class Source(TypedDict):
@@ -111,10 +148,12 @@ class PhotoJson(TypedDict, total=False):
     quality: Quality
     source: Source
     weather: Weather
+    user_note: str
     manual_edit: bool
     manual_location: bool
     manual_people: bool
     manual_vision: bool
+    manual_note: bool
 
 
 def refresh_manual_edit_flag(data: dict[str, Any]) -> None:
@@ -123,6 +162,8 @@ def refresh_manual_edit_flag(data: dict[str, Any]) -> None:
         data.get("manual_location")
         or data.get("manual_people")
         or data.get("manual_vision")
+        or data.get("manual_transcript")
+        or data.get("manual_note")
     )
     if any_manual:
         data["manual_edit"] = True
@@ -140,6 +181,40 @@ def is_manual_vision(data: dict[str, Any]) -> bool:
 
 def is_manual_location(data: dict[str, Any]) -> bool:
     return bool(data.get("manual_location"))
+
+
+def is_manual_transcript(data: dict[str, Any]) -> bool:
+    return bool(data.get("manual_transcript"))
+
+
+def is_manual_note(data: dict[str, Any]) -> bool:
+    return bool(data.get("manual_note"))
+
+
+def _schema_version_tuple(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for chunk in str(version or "").strip().split("."):
+        try:
+            parts.append(int(chunk))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts) if parts else (0,)
+
+
+def bump_schema_for_user_note(data: dict[str, Any]) -> None:
+    """写入旁白时升到支持 user_note / manual_note 的协议版本。
+
+    photo → 至少 1.4；video / audio → 至少 1.1。已更高则不动。
+    """
+    current = str(data.get("schema_version") or "").strip()
+    if data.get("video_id"):
+        target = "1.1"
+    elif data.get("audio_id"):
+        target = "1.1"
+    else:
+        target = "1.4"
+    if _schema_version_tuple(current) < _schema_version_tuple(target):
+        data["schema_version"] = target
 
 
 # Analyzer 应返回的 AI 分析字段（不含 photo_id / timestamp / source / device_id）

@@ -1,7 +1,20 @@
 <template>
   <div class="ask-container">
     <aside class="ask-left">
-      <p class="hint">验证意图与索引：左侧提问，右侧看证据。点图进详情。</p>
+      <p class="hint">
+        验证意图与索引：左侧提问，右侧看证据。点图进详情。长期用「错题本」打勾。
+      </p>
+
+      <div class="checklist-bar">
+        <div class="checklist-stats">
+          <span>未测 {{ checklistStats.untested }}</span>
+          <span class="ok">好了 {{ checklistStats.pass }}</span>
+          <span class="bad">没好 {{ checklistStats.fail }}</span>
+        </div>
+        <el-button type="primary" plain size="small" @click="openChecklist">
+          错题本
+        </el-button>
+      </div>
 
       <div class="chips">
         <el-tag
@@ -43,6 +56,57 @@
           </el-tag>
         </div>
         <div class="answer-text">{{ result.answer }}</div>
+
+        <div v-if="followUpChips.length" class="follow-ups">
+          <span class="follow-label">继续问</span>
+          <el-tag
+            v-for="chip in followUpChips"
+            :key="chip"
+            class="chip follow-chip"
+            effect="plain"
+            type="success"
+            @click="askFollowUp(chip)"
+          >
+            {{ chip }}
+          </el-tag>
+        </div>
+
+        <div v-if="matchedChecklistItem" class="mark-row">
+          <span class="mark-label">本题打勾</span>
+          <el-button
+            size="small"
+            :type="matchedChecklistItem.status === 'pass' ? 'success' : 'default'"
+            :loading="marking"
+            @click="setItemStatus(matchedChecklistItem, 'pass')"
+          >
+            好了
+          </el-button>
+          <el-button
+            size="small"
+            :type="matchedChecklistItem.status === 'fail' ? 'danger' : 'default'"
+            :loading="marking"
+            @click="markFailPrompt(matchedChecklistItem)"
+          >
+            没好
+          </el-button>
+          <el-button
+            size="small"
+            text
+            :loading="marking"
+            @click="setItemStatus(matchedChecklistItem, 'untested')"
+          >
+            重置
+          </el-button>
+        </div>
+        <el-input
+          v-if="matchedChecklistItem && matchedChecklistItem.status === 'fail'"
+          v-model="matchedNoteDraft"
+          type="textarea"
+          :rows="2"
+          placeholder="没好时写：期望什么 / 实际答了啥"
+          class="mark-note"
+          @blur="saveMatchedNote"
+        />
       </section>
     </aside>
 
@@ -54,9 +118,12 @@
 
         <section v-if="evidencePhotos.length" class="evidence-block">
           <h3 class="block-title">
-            照片证据 · {{ evidenceTotal }}
+            媒体证据 · {{ evidenceTotal }}
+            <span v-if="evidenceMediaTypeHint" class="block-sub">
+              （{{ evidenceMediaTypeHint }}）
+            </span>
             <span v-if="evidenceTotal > evidencePageSize" class="block-sub">
-              （每页 {{ evidencePageSize }} 张）
+              （每页 {{ evidencePageSize }} 条）
             </span>
           </h3>
           <div class="photo-grid">
@@ -77,6 +144,9 @@
               <div class="photo-meta">
                 <div class="photo-line">{{ formatTime(photo.timestamp) }}</div>
                 <div class="photo-line muted">
+                  <template v-if="photo.media_type && photo.media_type !== 'photo'">
+                    [{{ mediaTypeLabel(photo.media_type) }}]
+                  </template>
                   {{ photo.location || photo.scene || photo.photo_id }}
                 </div>
               </div>
@@ -193,8 +263,19 @@
         </section>
 
         <section v-if="outingEvents.length" class="evidence-block">
-          <h3 class="block-title">出门事件 · {{ outingEvents.length }}</h3>
-          <el-table :data="outingEvents" stripe size="small">
+          <h3 class="block-title">
+            出门事件 · {{ outingEvents.length }}
+            <span class="block-sub">（点击一行查看照片）</span>
+          </h3>
+          <el-table
+            :data="outingEvents"
+            stripe
+            size="small"
+            highlight-current-row
+            :row-class-name="outingRowClass"
+            class="outing-table"
+            @row-click="selectOutingEvent"
+          >
             <el-table-column prop="day" label="日期" width="120" />
             <el-table-column prop="display_title" label="标题" min-width="180" show-overflow-tooltip />
             <el-table-column prop="photo_count" label="张数" width="80" align="right" />
@@ -204,6 +285,40 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <div v-if="selectedOutingId" class="outing-photos" v-loading="outingPhotosLoading">
+            <h4 class="outing-photos-title">
+              {{ selectedOutingTitle }}
+              <span class="block-sub">· {{ outingPhotos.length }} 张</span>
+            </h4>
+            <div v-if="outingPhotosError" class="ask-error">{{ outingPhotosError }}</div>
+            <div v-else-if="!outingPhotosLoading && !outingPhotos.length" class="ask-empty-inline">
+              <el-empty description="该事件没有关联照片" :image-size="64" />
+            </div>
+            <div v-else class="photo-grid">
+              <button
+                v-for="photo in outingPhotos"
+                :key="photo.photo_id"
+                type="button"
+                class="photo-card"
+                @click="emit('view-detail', photo.photo_id)"
+              >
+                <img
+                  v-if="photo.source_path"
+                  :src="previewUrl(photo.source_path)"
+                  :alt="photo.photo_id"
+                  loading="lazy"
+                />
+                <div v-else class="photo-placeholder">无预览</div>
+                <div class="photo-meta">
+                  <div class="photo-line">{{ formatTime(photo.timestamp) }}</div>
+                  <div class="photo-line muted">
+                    {{ photo.location || photo.scene || photo.photo_id }}
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
         </section>
 
         <section v-if="storyItems.length" class="evidence-block">
@@ -224,27 +339,90 @@
       </template>
 
       <div v-else class="ask-empty">
-        <el-empty description="选左侧示例，或输入问题后提问" />
+        <el-empty description="选左侧示例，或打开错题本逐条测" />
       </div>
     </main>
+
+    <el-drawer
+      v-model="checklistOpen"
+      title="问答错题本"
+      size="440px"
+      direction="rtl"
+    >
+      <p class="drawer-hint">
+        点问句即提问；答完后在左侧标「好了 / 没好」。状态保存在 Mac
+        <code>data/ask_checklist.json</code>。
+      </p>
+
+      <div class="drawer-filters">
+        <el-radio-group v-model="checklistFilter" size="small">
+          <el-radio-button label="all">全部</el-radio-button>
+          <el-radio-button label="untested">未测</el-radio-button>
+          <el-radio-button label="fail">没好</el-radio-button>
+          <el-radio-button label="pass">好了</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <div class="add-row">
+        <el-input
+          v-model="newQuestion"
+          size="small"
+          placeholder="加一条自家问句"
+          @keydown.enter.exact.prevent="addChecklistItem"
+        />
+        <el-button size="small" type="primary" :loading="adding" @click="addChecklistItem">
+          添加
+        </el-button>
+      </div>
+
+      <div v-loading="checklistLoading" class="checklist-list">
+        <div
+          v-for="group in groupedChecklist"
+          :key="group.section"
+          class="checklist-section"
+        >
+          <h4 class="section-title">{{ group.section }}</h4>
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            type="button"
+            class="checklist-item"
+            :class="`st-${item.status}`"
+            @click="askFromChecklist(item)"
+          >
+            <span class="item-status">{{ statusLabel(item.status) }}</span>
+            <span class="item-q">{{ item.question }}</span>
+            <span v-if="item.intent_hint" class="item-hint">{{ item.intent_hint }}</span>
+            <span v-if="item.note" class="item-note">{{ item.note }}</span>
+          </button>
+        </div>
+        <el-empty
+          v-if="!groupedChecklist.length"
+          description="该筛选下没有条目"
+          :image-size="72"
+        />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const emit = defineEmits(['view-detail'])
 
 const exampleChips = [
   '面面最近去哪了',
   '最近出去玩了哪些',
+  '去年国庆去哪里玩了',
+  '去年国庆去哪里玩了？开心吗？见了哪些人？',
   '面面2024年出去玩了哪些',
   '去年春天出门',
   '面面住过哪些地方',
   '面面在哪个地方呆的时间最长',
-  '面面骑车的照片',
+  '面面骑车',
   '有没有轮滑',
   '面面的画作',
   '面面去动物园是什么时候',
@@ -263,10 +441,66 @@ const question = ref('')
 const loading = ref(false)
 const error = ref('')
 const result = ref(null)
+/** 上一轮 turn_context，供追问带上 */
+const askContext = ref(null)
 const evidencePage = ref(1)
 const evidencePageSize = 20
+const selectedOutingId = ref('')
+const selectedOutingTitle = ref('')
+const outingPhotos = ref([])
+const outingPhotosLoading = ref(false)
+const outingPhotosError = ref('')
+
+const checklistOpen = ref(false)
+const checklistLoading = ref(false)
+const checklistItems = ref([])
+const checklistStats = ref({ total: 0, untested: 0, pass: 0, fail: 0 })
+const checklistFilter = ref('all')
+const newQuestion = ref('')
+const adding = ref(false)
+const marking = ref(false)
+const matchedNoteDraft = ref('')
+const activeChecklistId = ref('')
 
 const facts = computed(() => result.value?.facts || {})
+
+const followUpChips = computed(() => {
+  const list = result.value?.follow_ups
+  return Array.isArray(list) ? list.filter((x) => typeof x === 'string' && x.trim()) : []
+})
+
+const matchedChecklistItem = computed(() => {
+  const q = question.value.trim()
+  if (!q) return null
+  if (activeChecklistId.value) {
+    const byId = checklistItems.value.find((x) => x.id === activeChecklistId.value)
+    if (byId) return byId
+  }
+  return checklistItems.value.find((x) => x.question === q) || null
+})
+
+const groupedChecklist = computed(() => {
+  const filter = checklistFilter.value
+  const rows = checklistItems.value.filter((item) => {
+    if (filter === 'all') return true
+    return item.status === filter
+  })
+  const map = new Map()
+  for (const item of rows) {
+    const key = item.section || '其它'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(item)
+  }
+  return [...map.entries()].map(([section, items]) => ({ section, items }))
+})
+
+watch(matchedChecklistItem, (item) => {
+  matchedNoteDraft.value = item?.note || ''
+})
+
+onMounted(() => {
+  loadChecklist()
+})
 
 const factsJson = computed(() => {
   try {
@@ -323,6 +557,18 @@ const peakDays = computed(() => {
 })
 
 const evidencePhotos = computed(() => {
+  // 优先统一 evidence 合同；否则回退拼 facts
+  const evMedia = result.value?.evidence?.media
+  if (Array.isArray(evMedia) && evMedia.length) {
+    return evMedia.map((m) => ({
+      photo_id: m.id || m.photo_id || '',
+      media_type: m.media_type || 'photo',
+      timestamp: m.timestamp || '',
+      location: m.location || '',
+      scene: m.scene || '',
+      source_path: m.source_path || '',
+    }))
+  }
   const seen = new Set()
   const out = []
 
@@ -346,6 +592,22 @@ const evidencePhotos = computed(() => {
   }
   return out
 })
+
+const evidenceMediaTypeHint = computed(() => {
+  const by = result.value?.evidence?.counts?.by_media_type
+  if (!by || typeof by !== 'object') return ''
+  const parts = []
+  if (by.photo) parts.push(`照片 ${by.photo}`)
+  if (by.video) parts.push(`视频 ${by.video}`)
+  if (by.audio) parts.push(`音频 ${by.audio}`)
+  return parts.join(' · ')
+})
+
+function mediaTypeLabel(mt) {
+  if (mt === 'video') return '视频'
+  if (mt === 'audio') return '音频'
+  return '照片'
+}
 
 const evidenceTotal = computed(() => {
   const n = evidencePhotos.value.length
@@ -408,23 +670,214 @@ const hasEvidence = computed(
     storyItems.value.length > 0,
 )
 
+function statusLabel(status) {
+  if (status === 'pass') return '好了'
+  if (status === 'fail') return '没好'
+  return '未测'
+}
+
+function applyStats(stats) {
+  if (!stats || typeof stats !== 'object') return
+  checklistStats.value = {
+    total: stats.total || 0,
+    untested: stats.untested || 0,
+    pass: stats.pass || 0,
+    fail: stats.fail || 0,
+  }
+}
+
+async function loadChecklist() {
+  checklistLoading.value = true
+  try {
+    const res = await axios.get('/api/ask/checklist')
+    checklistItems.value = Array.isArray(res.data?.items) ? res.data.items : []
+    applyStats(res.data?.stats)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || err.message || '加载错题本失败')
+  } finally {
+    checklistLoading.value = false
+  }
+}
+
+function openChecklist() {
+  checklistOpen.value = true
+  loadChecklist()
+}
+
+function askFromChecklist(item) {
+  activeChecklistId.value = item.id
+  question.value = item.question
+  checklistOpen.value = false
+  submitAsk()
+}
+
+function askFollowUp(chip) {
+  const text = String(chip || '').trim()
+  if (!text) return
+  question.value = text
+  submitAsk({ withContext: true })
+}
+
+async function setItemStatus(item, status, note) {
+  if (!item?.id) return
+  marking.value = true
+  try {
+    const body = { status }
+    if (note !== undefined) body.note = note
+    const res = await axios.patch(`/api/ask/checklist/${encodeURIComponent(item.id)}`, body)
+    const updated = res.data?.item
+    if (updated) {
+      const idx = checklistItems.value.findIndex((x) => x.id === updated.id)
+      if (idx >= 0) checklistItems.value[idx] = updated
+      else checklistItems.value.push(updated)
+    }
+    applyStats(res.data?.stats)
+    if (status === 'pass') ElMessage.success('已标好了')
+    else if (status === 'fail') ElMessage.warning('已标没好')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || err.message || '更新失败')
+  } finally {
+    marking.value = false
+  }
+}
+
+async function markFailPrompt(item) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '期望什么 / 实际答了啥（可留空）',
+      '标为没好',
+      {
+        confirmButtonText: '没好',
+        cancelButtonText: '取消',
+        inputValue: item.note || '',
+        inputPlaceholder: '可选备注',
+      },
+    )
+    matchedNoteDraft.value = value || ''
+    await setItemStatus(item, 'fail', value || '')
+  } catch {
+    /* cancel */
+  }
+}
+
+async function saveMatchedNote() {
+  const item = matchedChecklistItem.value
+  if (!item) return
+  const note = matchedNoteDraft.value
+  if ((item.note || '') === note) return
+  marking.value = true
+  try {
+    const res = await axios.patch(`/api/ask/checklist/${encodeURIComponent(item.id)}`, {
+      note,
+    })
+    const updated = res.data?.item
+    if (updated) {
+      const idx = checklistItems.value.findIndex((x) => x.id === updated.id)
+      if (idx >= 0) checklistItems.value[idx] = updated
+    }
+    applyStats(res.data?.stats)
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || err.message || '保存备注失败')
+  } finally {
+    marking.value = false
+  }
+}
+
+async function addChecklistItem() {
+  const q = newQuestion.value.trim()
+  if (!q) {
+    ElMessage.warning('请输入问句')
+    return
+  }
+  adding.value = true
+  try {
+    const res = await axios.post('/api/ask/checklist', {
+      question: q,
+      section: '自家补充',
+    })
+    if (res.data?.item) checklistItems.value.push(res.data.item)
+    applyStats(res.data?.stats)
+    newQuestion.value = ''
+    ElMessage.success('已添加')
+  } catch (err) {
+    ElMessage.error(err.response?.data?.detail || err.message || '添加失败')
+  } finally {
+    adding.value = false
+  }
+}
+
 function useChip(text) {
+  activeChecklistId.value = ''
   question.value = text
   submitAsk()
 }
 
-async function submitAsk() {
+function clearOutingSelection() {
+  selectedOutingId.value = ''
+  selectedOutingTitle.value = ''
+  outingPhotos.value = []
+  outingPhotosError.value = ''
+  outingPhotosLoading.value = false
+}
+
+function outingRowClass({ row }) {
+  return row?.event_id && row.event_id === selectedOutingId.value ? 'is-selected-outing' : ''
+}
+
+async function selectOutingEvent(row) {
+  const eventId = String(row?.event_id || '').trim()
+  if (!eventId) {
+    ElMessage.warning('该事件缺少 event_id，无法加载照片')
+    return
+  }
+  // 再点同一行 → 收起
+  if (selectedOutingId.value === eventId) {
+    clearOutingSelection()
+    return
+  }
+  selectedOutingId.value = eventId
+  selectedOutingTitle.value =
+    row.display_title || `${row.day || ''} · ${row.location || '未知地点'}`
+  outingPhotos.value = []
+  outingPhotosError.value = ''
+  outingPhotosLoading.value = true
+  try {
+    const res = await axios.get(`/api/events/${encodeURIComponent(eventId)}`)
+    outingPhotos.value = Array.isArray(res.data?.photos) ? res.data.photos : []
+  } catch (err) {
+    outingPhotosError.value =
+      err.response?.data?.detail || err.message || '加载事件照片失败'
+  } finally {
+    outingPhotosLoading.value = false
+  }
+}
+
+async function submitAsk(opts = {}) {
   const q = question.value.trim()
   if (!q) {
     ElMessage.warning('请输入问题')
     return
   }
+  if (
+    activeChecklistId.value &&
+    !checklistItems.value.some(
+      (x) => x.id === activeChecklistId.value && x.question === q,
+    )
+  ) {
+    activeChecklistId.value = ''
+  }
   loading.value = true
   error.value = ''
   evidencePage.value = 1
+  clearOutingSelection()
   try {
-    const res = await axios.post('/api/ask', { question: q })
+    const payload = { question: q }
+    if (opts.withContext && askContext.value) {
+      payload.context = askContext.value
+    }
+    const res = await axios.post('/api/ask', payload)
     result.value = res.data
+    askContext.value = res.data?.context || null
   } catch (err) {
     result.value = null
     error.value =
@@ -493,6 +946,152 @@ function formatTime(timestamp) {
   color: var(--muted);
   font-size: 0.85rem;
   line-height: 1.4;
+}
+
+.checklist-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.checklist-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.checklist-stats .ok {
+  color: #67c23a;
+}
+
+.checklist-stats .bad {
+  color: #f56c6c;
+}
+
+.mark-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.mark-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
+
+.mark-note {
+  margin-top: 0.5rem;
+}
+
+.drawer-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.drawer-hint code {
+  font-size: 0.78rem;
+}
+
+.drawer-filters {
+  margin-bottom: 0.75rem;
+}
+
+.add-row {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.checklist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 120px;
+}
+
+.checklist-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.section-title {
+  margin: 0 0 0.2rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.checklist-item {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.55rem;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.checklist-item:hover {
+  border-color: var(--accent);
+}
+
+.checklist-item.st-pass {
+  border-color: #b3e19d;
+}
+
+.checklist-item.st-fail {
+  border-color: #fbc4c4;
+}
+
+.item-status {
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.st-pass .item-status {
+  color: #67c23a;
+}
+
+.st-fail .item-status {
+  color: #f56c6c;
+}
+
+.item-q {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.item-hint {
+  grid-column: 2;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.item-note {
+  grid-column: 2;
+  font-size: 0.75rem;
+  color: #e6a23c;
+  line-height: 1.3;
 }
 
 .chips {
@@ -565,6 +1164,24 @@ function formatTime(timestamp) {
   font-size: 0.92rem;
 }
 
+.follow-ups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.follow-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-right: 0.15rem;
+}
+
+.follow-chip {
+  cursor: pointer;
+}
+
 .evidence-block {
   display: flex;
   flex-direction: column;
@@ -589,6 +1206,30 @@ function formatTime(timestamp) {
   display: flex;
   justify-content: flex-end;
   padding-top: 0.25rem;
+}
+
+.outing-table {
+  cursor: pointer;
+}
+
+.outing-table :deep(.is-selected-outing) > td {
+  background: color-mix(in srgb, var(--accent, #409eff) 12%, transparent) !important;
+}
+
+.outing-photos {
+  margin-top: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2, transparent);
+  min-height: 4rem;
+}
+
+.outing-photos-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .photo-grid {

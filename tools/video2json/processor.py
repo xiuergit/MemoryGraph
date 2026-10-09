@@ -175,6 +175,7 @@ def process_folder(
     limit: int | None = None,
     files: list[Path] | None = None,
     year: str = "",
+    month: str = "",
     progress_cb: Callable[[dict[str, object]], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> ProcessStats:
@@ -182,6 +183,9 @@ def process_folder(
     memory_path = Path(memory_dir or MEMORY_DIR)
     photos_root = PHOTOS_DIR.resolve()
     year = year.strip()
+    month = (month or "").strip()
+    if "/" in month or "\\" in month or month in (".", ".."):
+        month = ""
     if year and files is None:
         year_dir = photos_root / year
         if year_dir.is_dir():
@@ -190,15 +194,22 @@ def process_folder(
             alt = photos_root / f"{year}年"
             if alt.is_dir():
                 input_path = alt
+        if month:
+            month_dir = input_path / month
+            if month_dir.is_dir():
+                input_path = month_dir
+            else:
+                logger.warning("月/时段目录不存在: %s/%s", year, month)
     stats = ProcessStats()
     start = time.perf_counter()
 
+    scope = f"{year}/{month}" if year and month else year
     logger.info(
         "开始处理视频: 输入=%s, 输出=%s, AI=%s%s",
         input_path.resolve() if files is None else "(指定文件)",
         memory_path.resolve(),
         run_ai,
-        f", 年份={year}" if year else "",
+        f", 范围={scope}" if scope else "",
     )
 
     if files is not None:

@@ -4,9 +4,9 @@ MemoryGraph 的记忆原子协议。按**媒体形态**分文件定义，**不�
 
 | 协议 | 文件 | 状态 |
 |------|------|------|
-| 照片 | [`photo.v1.json`](photo.v1.json) | ✅ 生产中（当前写入 `1.2`；`1.3` 增加可选 `related_ids`） |
-| 视频 | [`video.v1.json`](video.v1.json) | ✅ 协议已定；pipeline 未实现 |
-| 音频 | [`audio.v1.json`](audio.v1.json) | ✅ 协议已定；pipeline 未实现 |
+| 照片 | [`photo.v1.json`](photo.v1.json) | ✅ 生产中（当前写入 `1.2`；`1.3` 可选 `related_ids`；`1.4` 可选 `user_note` / `manual_note`） |
+| 视频 | [`video.v1.json`](video.v1.json) | ✅ 协议已定（`1.1` 可选旁白）；pipeline 未实现 |
+| 音频 | [`audio.v1.json`](audio.v1.json) | ✅ 协议已定（`1.1` 可选旁白）；pipeline 未实现 |
 
 设计说明见 [docs/media-memory.md](../docs/media-memory.md)。
 
@@ -46,7 +46,9 @@ MemoryGraph 的记忆原子协议。按**媒体形态**分文件定义，**不�
 
 ## photo.v1
 
-当前生产写入 **1.2**（可选 `weather`）。**1.3** 起可选 `related_ids`（Live Photo 等关联）；未写该字段的 `1.0`–`1.2` 仍可读。
+当前生产写入 **1.2**（可选 `weather`）。**1.3** 起可选 `related_ids`（Live Photo 等关联）；**1.4** 起可选 `user_note` / `manual_note`（人写旁白）。未写新字段的 `1.0`–`1.3` 仍可读。
+
+旁白设计见 [docs/mobile-outbox.md](../docs/mobile-outbox.md)。写入旁白时建议将 `schema_version` 升为 `1.4` 并设 `manual_note: true`（`refresh_manual_edit_flag` 会计入汇总 `manual_edit`）。Desk：`POST /api/media/describe`（幂等 `mutation_id`）；Vue 详情可编辑；index 将 `user_note` 投影进 `photo_terms`。
 
 示例：[`examples/sample.json`](examples/sample.json)
 
@@ -62,6 +64,7 @@ MemoryGraph 的记忆原子协议。按**媒体形态**分文件定义，**不�
 | `quality.face_detected` | 可选 | |
 | `people`, `scene`, `objects`, `actions`, `emotion`, `tags` | ✅（本地模型） | |
 | `related_ids` | 可选（1.3+） | Live Photo 等 |
+| `user_note` / `manual_note` | 可选（1.4+） | 人写旁白；非 AI `scene`；`manual_note` 禁止 backfill 覆盖 |
 | `manual_edit` / 分项 `manual_*` | ✅（手改时设 true） | |
 
 ### location / weather
@@ -70,16 +73,20 @@ MemoryGraph 的记忆原子协议。按**媒体形态**分文件定义，**不�
 - **`location`**：可读地名（逆地理 + 同日聚类）
 - **weather**：日气温/降水 + 拍摄时刻小时天气码；缓存 `data/.weather_cache.json`；补全见 `photo2json --backfill weather`
 
-## video.v1（1.0）
+## video.v1（1.0 / 1.1）
 
 与 photo 同构的语义字段；`source` 必含 `duration_s`；可选 `fps` / `container`。  
-语义可先空，后续关键帧分析 / backfill 再填。
+语义可先空，后续关键帧分析 / backfill 再填。  
+可选 `transcript` / `manual_transcript`（与 audio.v1 同构）。  
+**1.1** 起可选 `user_note` / `manual_note`（同构旁白）。  
+ASR 写入 `status=draft`；用户确认后为 `confirmed` 才进 `photo_terms` / 问答。缺 `status` 视为 draft。
 
 示例：[`examples/sample_video.json`](examples/sample_video.json)
 
-## audio.v1（1.0）
+## audio.v1（1.0 / 1.1）
 
-与 photo/video 同构的语义字段；`source` 必含 `duration_s`（无宽高）；`quality` 为 `silent` / `speech_detected`；可选 `transcript`、`manual_transcript`。  
+与 photo/video 同构的语义字段；`source` 必含 `duration_s`（无宽高）；`quality` 为 `silent` / `speech_detected`；可选 `transcript`（含 `status`: draft|confirmed）、`manual_transcript`。  
+**1.1** 起可选 `user_note` / `manual_note`（同构旁白）。  
 pipeline 未实现前仅作协议占位。
 
 示例：[`examples/sample_audio.json`](examples/sample_audio.json)

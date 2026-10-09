@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		10010D1A347C412AB143B376 /* AskViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */; };
 		290008F7DC024DE592969A5A /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */; };
+		2C42A339A000407FA481B315 /* OutboxModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F5404675DA7455887F6724A /* OutboxModels.swift */; };
 		2E2C50B8EF0D44BD97777421 /* RemoteImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C32CB9216B4363B59F41BF /* RemoteImageView.swift */; };
 		358ACC2662474609B59DE64F /* AnswerSpeaker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */; };
 		3A808F3B41E242DFB8E7B792 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0C81D9F10D94F088F13C907 /* Models.swift */; };
@@ -19,37 +20,46 @@
 		6C847B9E77F94C10A8375812 /* PeopleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB83588AE55C448FB617C60A /* PeopleView.swift */; };
 		6EFAC07CE8674DEDB71E4EC5 /* PhotoStripTwoRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 167E5A07DBB54ED88C7F4212 /* PhotoStripTwoRow.swift */; };
 		738D0BC116B04FB289158A80 /* DeskAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */; };
+		7E3B5534835E4C07B2883C82 /* OutboxSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE693A0EE6741D0A93329EA /* OutboxSyncService.swift */; };
 		87F7F3B053464AB185612BA6 /* MemoryGraphApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660374A4655F4BAA8AE358DC /* MemoryGraphApp.swift */; };
 		91DCDDDC7A4E4922A678BB26 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4B960FC971C4D13BB725F5B /* SettingsView.swift */; };
 		9520379D67DA4B84A1ED8D9B /* PhotoDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C912FD64EA7940FCB1B93691 /* PhotoDetailView.swift */; };
-		BA7A3A158C614856B7174178 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */; };
+		A67EEA59024E4A769E20ABE9 /* OutboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9B9ED443F64411798302D0D /* OutboxView.swift */; };
 		B1F4E8C29A7D4E11B0C3D5E6 /* KidSpeechVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */; };
+		BA7A3A158C614856B7174178 /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */; };
 		CA1B13159F03404DBD675698 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C60AF0802E54EB68115EAE2 /* AskView.swift */; };
+		CF5C71FDB72B4CF09B61C30D /* OutboxStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A609019A44C494D821E52C2 /* OutboxStore.swift */; };
 		D8CF0551C2BD4214AC7F56C3 /* PeopleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F51115D0C304E768751AFD3 /* PeopleViewModel.swift */; };
 		DBC8F4924E6D41AEADE1E63B /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 251B7EF08BFF42B1BC380694 /* ConnectionBanner.swift */; };
 		E482A9E56823415390B6020B /* PersonPhotosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACEB4FE25EF94A4DBC7DB217 /* PersonPhotosView.swift */; };
 		E830C813AC79497491ABAF66 /* PhotoGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4955B85D9D2442AD9A503C0D /* PhotoGridView.swift */; };
+		FEBED74F21A448028FCC85E4 /* StoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EDC26114B1E4D2EB3070141 /* StoriesView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		167E5A07DBB54ED88C7F4212 /* PhotoStripTwoRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoStripTwoRow.swift; sourceTree = "<group>"; };
 		251B7EF08BFF42B1BC380694 /* ConnectionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBanner.swift; sourceTree = "<group>"; };
 		2F51115D0C304E768751AFD3 /* PeopleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleViewModel.swift; sourceTree = "<group>"; };
+		2F5404675DA7455887F6724A /* OutboxModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxModels.swift; sourceTree = "<group>"; };
 		3807C416E25F4A21B4DFD042 /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidSpeechVocabulary.swift; sourceTree = "<group>"; };
 		3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		4955B85D9D2442AD9A503C0D /* PhotoGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoGridView.swift; sourceTree = "<group>"; };
+		4A609019A44C494D821E52C2 /* OutboxStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxStore.swift; sourceTree = "<group>"; };
+		5EDC26114B1E4D2EB3070141 /* StoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoriesView.swift; sourceTree = "<group>"; };
 		6281F4E32CA74BA482E862AB /* MemoryGraph.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MemoryGraph.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		660374A4655F4BAA8AE358DC /* MemoryGraphApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryGraphApp.swift; sourceTree = "<group>"; };
 		6E5398FAB6B043B0BFDE9594 /* KidTalkMicButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidTalkMicButton.swift; sourceTree = "<group>"; };
 		7C60AF0802E54EB68115EAE2 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
 		7CC29D7BC55A4FB3AEC306A8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskAPIClient.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F64789A0B1C2D3 /* KidSpeechVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KidSpeechVocabulary.swift; sourceTree = "<group>"; };
 		A8C32CB9216B4363B59F41BF /* RemoteImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImageView.swift; sourceTree = "<group>"; };
 		ACEB4FE25EF94A4DBC7DB217 /* PersonPhotosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonPhotosView.swift; sourceTree = "<group>"; };
+		BDE693A0EE6741D0A93329EA /* OutboxSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxSyncService.swift; sourceTree = "<group>"; };
 		C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskViewModel.swift; sourceTree = "<group>"; };
 		C912FD64EA7940FCB1B93691 /* PhotoDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoDetailView.swift; sourceTree = "<group>"; };
 		CE21D8142B094676BF4FBB88 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D9B9ED443F64411798302D0D /* OutboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutboxView.swift; sourceTree = "<group>"; };
 		DB83588AE55C448FB617C60A /* PeopleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeopleView.swift; sourceTree = "<group>"; };
 		DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnswerSpeaker.swift; sourceTree = "<group>"; };
 		E0C81D9F10D94F088F13C907 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -105,6 +115,7 @@
 		9537077459664BAABE6A172A /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				2F5404675DA7455887F6724A /* OutboxModels.swift */,
 				E0C81D9F10D94F088F13C907 /* Models.swift */,
 			);
 			path = Models;
@@ -118,9 +129,20 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		C05BBF53A3F64D40B4B36B91 /* Outbox */ = {
+			isa = PBXGroup;
+			children = (
+				D9B9ED443F64411798302D0D /* OutboxView.swift */,
+				5EDC26114B1E4D2EB3070141 /* StoriesView.swift */,
+			);
+			path = Outbox;
+			sourceTree = "<group>";
+		};
 		C5D68E25689F4C709EF230A2 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				4A609019A44C494D821E52C2 /* OutboxStore.swift */,
+				BDE693A0EE6741D0A93329EA /* OutboxSyncService.swift */,
 				DBAE50FC9A204EC4A7C61C78 /* AnswerSpeaker.swift */,
 				3FE39CACB10D4429BBB19EF3 /* AppSettings.swift */,
 				9D58DECE9E9D451A86780978 /* DeskAPIClient.swift */,
@@ -148,6 +170,7 @@
 		DDDE5CC1C1A0491E9864DD63 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				C05BBF53A3F64D40B4B36B91 /* Outbox */,
 				6E931BE8B0444A329B3F6925 /* Ask */,
 				943BF0CE5A234DA3963E3088 /* People */,
 				6C8C9D81542D4778AB72753D /* Shared */,
@@ -233,6 +256,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2C42A339A000407FA481B315 /* OutboxModels.swift in Sources */,
+				CF5C71FDB72B4CF09B61C30D /* OutboxStore.swift in Sources */,
+				7E3B5534835E4C07B2883C82 /* OutboxSyncService.swift in Sources */,
+				A67EEA59024E4A769E20ABE9 /* OutboxView.swift in Sources */,
+				FEBED74F21A448028FCC85E4 /* StoriesView.swift in Sources */,
 				358ACC2662474609B59DE64F /* AnswerSpeaker.swift in Sources */,
 				290008F7DC024DE592969A5A /* AppSettings.swift in Sources */,
 				CA1B13159F03404DBD675698 /* AskView.swift in Sources */,
@@ -268,7 +296,7 @@
 				CLANG_ENABLE_OBJC_ARC = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
@@ -285,7 +313,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTABILITY = YES;
 				GCC_DYNAMIC_NO_PIC = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -305,8 +333,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MemoryGraph/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "点圆钮说话时需要用麦克风。";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题，问问家里的记忆。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "说话提问或写旁白时需要用麦克风。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题或旁白，记进家里的记忆。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -338,8 +366,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MemoryGraph/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "点圆钮说话时需要用麦克风。";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题，问问家里的记忆。";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "说话提问或写旁白时需要用麦克风。";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题或旁白，记进家里的记忆。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

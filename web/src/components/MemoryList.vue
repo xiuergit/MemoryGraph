@@ -115,7 +115,7 @@
       <div class="filter-row">
         <el-input
           v-model="searchKeyword"
-          placeholder="搜索 id、时间、地点、人物、场景"
+          placeholder="搜索 id、旁白、地点、人物、场景（手机入库可搜 ob_）"
           clearable
           class="search-input"
           @keyup.enter="loadData"
@@ -158,6 +158,26 @@
         @click="openTimestampDialog"
       >
         批量补时间
+      </el-button>
+      <el-button
+        type="success"
+        size="small"
+        plain
+        :disabled="!selectedRows.length"
+        :loading="sendingPrint"
+        @click="sendToPaperCut"
+      >
+        送到剪纸排版
+      </el-button>
+      <el-button
+        type="primary"
+        size="small"
+        plain
+        :disabled="!selectedRows.length || selectedRows.length !== 6"
+        :loading="sendingStory"
+        @click="sendToStoryCircle"
+      >
+        做成分享页
       </el-button>
       <el-button
         type="danger"
@@ -294,6 +314,10 @@
               <div v-else class="card-no-image">无图</div>
               <span v-if="row.media_type === 'video'" class="media-badge">视频</span>
               <span v-else-if="row.media_type === 'audio'" class="media-badge audio">音频</span>
+              <span
+                v-else-if="isOutboxRow(row)"
+                class="media-badge outbox"
+              >手机</span>
               <button
                 type="button"
                 class="card-check"
@@ -336,6 +360,13 @@
               </div>
               <div class="card-meta" :class="{ empty: !row.people }" :title="row.people || ''">
                 {{ row.people || '无人物' }}
+              </div>
+              <div
+                v-if="row.user_note"
+                class="card-meta note"
+                :title="row.user_note"
+              >
+                {{ row.user_note }}
               </div>
             </div>
           </article>
@@ -397,6 +428,8 @@ const registryPeople = ref([])
 const tableData = ref([])
 const selectedRows = ref([])
 const deleting = ref(false)
+const sendingPrint = ref(false)
+const sendingStory = ref(false)
 const batchSaving = ref(false)
 const peopleDialogVisible = ref(false)
 const locationDialogVisible = ref(false)
@@ -753,6 +786,72 @@ function onWindowPointerUp() {
   marquee.value = null
 }
 
+async function sendToPaperCut() {
+  const ids = selectedRows.value.map((row) => row.photo_id).filter(Boolean)
+  if (!ids.length) return
+  sendingPrint.value = true
+  try {
+    const res = await axios.post('/api/print-outbox', {
+      photo_ids: ids,
+      open_browser: false,
+    })
+    const { copied_count: n, failed_count: failedCount, studio_url: url, failed } = res.data
+    if (failedCount > 0) {
+      const detail = (failed || []).map((f) => `${f.photo_id}: ${f.error}`).join('\n')
+      ElMessage.warning(`已送出 ${n} 张，失败 ${failedCount} 张\n${detail}`)
+    } else {
+      ElMessage.success(`已送出 ${n} 张到剪纸排版`)
+    }
+    if (url) window.open(url, '_blank')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '送到剪纸失败（请确认剪纸台已启动，且 PAPER_CUT_ROOT 正确）')
+  } finally {
+    sendingPrint.value = false
+  }
+}
+
+async function sendToStoryCircle() {
+  const ids = selectedRows.value.map((row) => row.photo_id).filter(Boolean)
+  if (!ids.length) return
+  const slots = ['骑车', '玩水', '包饺子', '图书馆', '看画展', '看非遗变脸']
+  if (ids.length !== slots.length) {
+    ElMessage.warning(
+      `请按顺序正好勾选 ${slots.length} 张图：${slots.join(' → ')}（当前 ${ids.length} 张）`,
+    )
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将按勾选顺序套标题：\n${slots.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n\n合照/同学都可以。继续生成？`,
+      '自己填图 · 暑假六格',
+      { confirmButtonText: '生成分享页', cancelButtonText: '再选选' },
+    )
+  } catch {
+    return
+  }
+  sendingStory.value = true
+  try {
+    const res = await axios.post('/api/story-circle/from-photos', {
+      photo_ids: ids,
+      layout: 'snake',
+      use_summer_slots: true,
+      title: '面面的开心暑假',
+      subtitle: '和同学一起交的暑假快乐事 · 顺着箭头讲',
+    })
+    const path = res.data?.path
+    if (!path) {
+      ElMessage.error('未返回分享页地址')
+      return
+    }
+    ElMessage.success(`已用你选的 ${res.data.count} 张排好`)
+    window.open(path, '_blank')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '生成分享页失败')
+  } finally {
+    sendingStory.value = false
+  }
+}
+
 async function deleteSelected() {
   const ids = selectedRows.value.map((row) => row.photo_id).filter(Boolean)
   if (ids.length === 0) {
@@ -946,6 +1045,12 @@ function formatTime(timestamp) {
   const hh = String(date.getHours()).padStart(2, '0')
   const mm = String(date.getMinutes()).padStart(2, '0')
   return `${y}/${m}/${d} ${hh}:${mm}`
+}
+
+function isOutboxRow(row) {
+  const id = String(row?.photo_id || '')
+  const device = String(row?.device_id || '').toLowerCase()
+  return id.includes('_ob_') || device === 'iphone' || device === 'ipad'
 }
 
 onMounted(() => {
@@ -1197,6 +1302,16 @@ onBeforeUnmount(() => {
 
 .media-badge.audio {
   background: rgba(30, 80, 120, 0.8);
+}
+
+.media-badge.outbox {
+  background: rgba(20, 120, 100, 0.85);
+}
+
+.card-meta.note {
+  color: #1a5c52;
+  font-weight: 500;
+  -webkit-line-clamp: 2;
 }
 
 .card-no-image {
