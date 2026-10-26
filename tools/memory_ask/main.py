@@ -1,13 +1,15 @@
 """记忆问答 CLI：用现有 JSON 索引回答简单问题。"""
 
 from __future__ import annotations
-
+#命令行参数解析标准库
 import argparse
 import logging
+#系统路径
 import sys
 from pathlib import Path
-
+#项目根目录
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+#如果项目根目录不在系统路径中，则添加到系统路径 加到搜索路径里的才能导入
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -55,6 +57,7 @@ def main() -> int:
     args = parser.parse_args()
 
     setup_logging(args.verbose)
+   
     result = ask(args.question, db_path=args.db, photo_links=not args.no_links)
 
     if args.debug:
