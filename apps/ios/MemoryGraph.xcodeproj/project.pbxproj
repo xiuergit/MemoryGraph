@@ -333,10 +333,12 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MemoryGraph/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问家里的 Mac，才能问答和看照片。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "说话提问或写旁白时需要用麦克风。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "家长模式选图拷贝进 App 沙盒，回家同步到家里的 Mac；不会删除系统相册。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题或旁白，记进家里的记忆。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -366,10 +368,12 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MemoryGraph/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "记忆";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问家里的 Mac，才能问答和看照片。";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "说话提问或写旁白时需要用麦克风。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "家长模式选图拷贝进 App 沙盒，回家同步到家里的 Mac；不会删除系统相册。";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "把你说的话转成问题或旁白，记进家里的记忆。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (

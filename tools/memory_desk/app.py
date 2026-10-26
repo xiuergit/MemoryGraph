@@ -119,6 +119,13 @@ from hub.shared.face_registry_manage import (
     rebuild_face_index,
     update_face_person,
 )
+from hub.shared.project_docs import (
+    ProjectDocError,
+    create_study_note,
+    list_doc_groups,
+    read_project_doc,
+    write_project_doc,
+)
 
 app = FastAPI(title="MemoryGraph Desk", version="0.1.0")
 
@@ -2693,6 +2700,46 @@ def _rel(path: Path) -> str:
         return str(path.relative_to(PROJECT_ROOT))
     except ValueError:
         return str(path)
+
+
+class DocWriteBody(BaseModel):
+    path: str
+    content: str = ""
+
+
+class DocCreateBody(BaseModel):
+    name: str
+
+
+@app.get("/api/docs")
+def api_docs_list() -> dict:
+    """知识菜单：docs/ 下的 Markdown，按架构 / 进度 / 配置 / 学习分组。"""
+    return {"groups": list_doc_groups()}
+
+
+@app.get("/api/docs/file")
+def api_docs_read(path: str = Query(..., description="相对仓库的 docs/…md")) -> dict:
+    try:
+        return read_project_doc(path)
+    except ProjectDocError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/docs/file")
+def api_docs_write(body: DocWriteBody) -> dict:
+    try:
+        return write_project_doc(body.path, body.content)
+    except ProjectDocError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/docs/file")
+def api_docs_create(body: DocCreateBody) -> dict:
+    """只在 docs/ai-study/ 新建笔记。"""
+    try:
+        return create_study_note(body.name)
+    except ProjectDocError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 _INDEX_HTML = """<!DOCTYPE html>

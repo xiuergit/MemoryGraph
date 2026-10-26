@@ -11,7 +11,7 @@
 **当前闭环**：Mac 批量产出 JSON，同步 SQLite；**MemoryGraph Desk** + **Vue Inspector** 管理与问答；**iOS 消费端**（问问 / 谁）连 Desk；CLI 仍可用。  
 **当前焦点（阶段 2）**：修问答——`unknown` fallback、关键词检索意图、复合条件、意图文档与端上证据对齐等（见 `docs/agent-intents.md`）。  
 **协议**：`photo.v1` + `video.v1` + `audio.v1`（分形态；索引用 `media_type`；Live Photo = photo+video + `related_ids`，见 `docs/media-memory.md`）。  
-**暂不做**：iOS 上传 / 采集 App、全库相册式时间轴、向量 RAG；视频/音频 **pipeline 实现**（协议已定，可与问答并行推进）。  
+**暂不做**：全库相册式时间轴、向量 RAG；视频/音频 **pipeline 实现**（协议已定，可与问答并行推进）。  
 **远期可选**：筛选结果时间轴（人物/物体/场景检索命中后，按时间分组展示）。
 
 ## 目录结构
@@ -19,7 +19,7 @@
 ```
 MemoryGraph/
 ├── schemas/                 # JSON 协议（photo / video / audio.v1）
-├── apps/ios/                # iOS 消费端（问问 / 谁；不做上传）
+├── apps/ios/                # 问问 / 谁；家长模式回家上传（Outbox → Desk）
 ├── hub/
 │   ├── shared/              # schema, analyzer, index_db, agent, …
 │   └── mac_server/          # 上传接收骨架（暂不推进）
@@ -172,7 +172,7 @@ python tools/photo2json/main.py    # 识别并写入 people 字段
 | `tools/memory_desk/app.py` | Desk REST API | 重复 analyze_image |
 | `web/` | Vue Inspector UI | 直连 SQLite / 绕过 JSON |
 | `hub/mac_server/server.py` | 上传接收骨架（暂不推进） | 重复实现分析逻辑 |
-| `apps/ios/` | 消费端：问答 / 按人看图（连 Desk） | 上传、跑视觉大模型、改 JSON |
+| `apps/ios/` | 问问 / 谁；家长模式回家上传（ingest / 旁白 / 故事） | 跑视觉大模型、把 JSON 当真源直接改 |
 
 ### 4. 错误处理
 
@@ -190,7 +190,7 @@ python tools/photo2json/main.py    # 识别并写入 people 字段
 5b. 改事件聚合 / 故事 / 意义落盘 → `hub/shared/events.py`、`annotations.py`、`tools/memory_events/`、Vue「事件」Tab
 6. 改路径 → `hub/shared/config.py`
 7. 改 Desk / Vue → `tools/memory_desk/app.py`、`web/src/`
-8. 改 iOS 消费端 → `apps/ios/`（连 Desk；**不做**上传协议）
+8. 改 iOS → `apps/ios/`（问问 / 谁，以及家长模式 Outbox；上传协议见 `docs/mobile-outbox.md`）
 
 ## 当前状态
 
@@ -202,11 +202,11 @@ python tools/photo2json/main.py    # 识别并写入 people 字段
 - ✅ `tools/memory_events` + Vue「事件」Tab（outing / 家 / 无时间按地点；`memory_annotations.json` 真源 + overlay 重挂、stories；手改地名同日同名合并）
 - ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、去重、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
 - ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`（去重候选报告）
-- ✅ `apps/ios/`：消费端壳（问问 + 谁；语音提问 / 朗读）；**不做**上传
+- ✅ `apps/ios/`：问问 + 谁；家长模式待上传、故事、回家同步
 - 🚧 **阶段 2：结构化问答打磨**（见 `docs/Project Charter.md` / `docs/agent-intents.md`）
   - ✅ P0：`unknown` fallback、`keyword_search`
   - 🔜 P1：复合条件、单人默认人物
-- ❌ iOS 上传 / `mac_server` 日常推进：暂不需要（继续「导出到 Mac」）
+- ✅ 回家上传：Desk ingest / 旁白 / 故事；`mac_server` 的 `/import` 骨架仍不推进
 - ✅ 多媒体协议：`video.v1` / `audio.v1` + `docs/media-memory.md`（pipeline 未做）
 - 🔜 详情页改 `people[]`、筛选结果时间轴、向量 RAG
 - 🔜 视频 / 音频 JSON pipeline（可与问答并行；协议已定）

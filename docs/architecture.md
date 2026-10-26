@@ -6,7 +6,7 @@
 
 | 组件 | 角色 |
 |------|------|
-| **iPhone / 导出** | 采集：系统相册导出到 Mac（**不做** App 上传） |
+| **iPhone** | 采集两条：系统相册导出到 Mac；家长模式回家上传（Outbox → Desk） |
 | **Mac（Python）** | 记忆中枢：本地 AI 分析、索引、问答 API |
 | **Vue / iOS 消费端** | 问 / 筛 / 看：连 Desk；iOS 不跑大模型 |
 | **JSON** | 记忆原子（唯一数据源）；协议按形态分：`photo.v1` / `video.v1` / `audio.v1`（见 [media-memory.md](media-memory.md)） |
@@ -44,7 +44,7 @@ tools/memory_events/main.py sync   ← 可选；出门/家事件聚合
 tools/memory_ask / Desk API
         │
         ├── web/ Vue Inspector
-        └── apps/ios/ 消费端（问问 / 谁）
+        └── apps/ios/ 问问 / 谁；家长模式回家上传
 ```
 
 **地址纠错**（有 GPS）：改 `data/.geocode_cache.json`（Vue 或 `tools/location_mapping`）→ `--regeocode-locations --no-normalize-after` → `sync`。家附近已拆 POI 时勿再跑 `--normalize-locations`。
@@ -53,11 +53,16 @@ tools/memory_ask / Desk API
 
 **增量补全**（不重新扫原图目录）：`photo2json --backfill vision|faces|all`（见 `hub/shared/backfill.py`）；人脸库变更后用 `--backfill faces --refill`。
 
-### 路径 B：iPhone App 上传 ❌ 暂不做（有设计稿）
+### 路径 B：回家上传 ✅ 已做
 
-曾预留 `hub/mac_server` `POST /import` 骨架。**当前不实现**；采集一律「导出原图到 Mac」再跑 `photo2json`。`apps/ios` 是消费端，不是上传端。
+家长在 iOS 打开家长模式，选图、写旁白、写故事，回家连上局域网 Desk 后同步。系统相册导出到 Mac、再跑 `photo2json` 仍然可用。
 
-长期设想（回家上传原图进 `photos/`、手机写描述/故事、年/月目录与 `ob_` 防撞名）：见 [mobile-outbox.md](mobile-outbox.md)。
+- 原图进 `data/photos/YYYY/MM/ob_<8>_<stem>.ext`（`POST /api/media/ingest`）
+- 旁白进 memory JSON 的 `user_note`（`POST /api/media/describe`）
+- 故事进 `memory_annotations.json`（`POST /api/stories/upsert`）
+- `hub/mac_server` 的 `POST /import` 骨架不走这条路
+
+目录、防撞名和回执见 [mobile-outbox.md](mobile-outbox.md)。
 
 ## 存储布局
 
@@ -117,8 +122,8 @@ id 规则见 [media-memory.md](media-memory.md)：照片为路径 stem；视频 
 | `tools/memory_stats/` | 数据健康报告 |
 | `tools/find/` | 按文件名搜索 CLI |
 | `hub/shared/photo_delete.py` | 删除照片（`.trash` + 清索引） |
-| `hub/mac_server/` | 上传接收骨架（**暂不推进**） |
-| `apps/ios/` | iOS 消费端：问答 / 按人看图（连 Desk；**不做**上传） |
+| `hub/mac_server/` | 早期 `POST /import` 骨架；回家上传走 Desk ingest，不推进这里 |
+| `apps/ios/` | 问问 / 谁；家长模式待上传、故事、回家同步（连 Desk） |
 
 ## 阶段规划
 
@@ -129,11 +134,11 @@ id 规则见 [media-memory.md](media-memory.md)：照片为路径 stem；视频 
 | **2** | 结构化问答打磨 | 🚧 **当前**（复合口语 / 轻量追问 / 叙事润色，见 [agent-intents.md](agent-intents.md)） |
 | **3** | 记忆库索引与检索 | ✅ SQLite + CLI + Desk + Vue + iOS 消费端；筛选结果时间轴 🔜 |
 | **4** | Event 聚合 v1 | ✅ `memory_events sync` + Vue「事件」Tab + 相关问答意图 |
-| — | iOS 上传 / 日常同步 | ❌ 暂不做（导出到 Mac）；Outbox 回家同步见 [mobile-outbox.md](mobile-outbox.md) |
+| — | iOS 回家上传 | ✅ 家长模式 Outbox（原图 / 旁白 / 故事），见 [mobile-outbox.md](mobile-outbox.md) |
 | **5+** | 向量 RAG、筛选时间轴、记忆智能体层 C | 🔜；**不做**全库相册式时间轴、公网闲聊 Bot |
 | **并行** | video/audio JSON pipeline | 协议 ✅；实现可与阶段 2 并行，见 [media-memory.md](media-memory.md) |
 
-> 原「阶段 2 = iOS 上传」已取消，编号改用于当前问答打磨。阶段 3/4 核心功能已完成。
+> 原「阶段 2 = iOS 上传」的编号已改用于问答打磨。回家上传后来按 Outbox 做完，不占阶段 2。阶段 3/4 核心功能已完成。
 
 ### 问答演进（有据记忆智能体）
 
@@ -200,4 +205,4 @@ Mac 问答入口：`hub/shared/agent.py` → Desk `POST /api/ask`（可选 `cont
 - **Mac 问答**：Ollama 文本模型（`OLLAMA_CHAT_MODEL`）+ 规则路由（阶段 2 打磨中）
 - **Mac 服务**：FastAPI + uvicorn（Desk）
 - **索引**：SQLite（`memorygraph.db`，JSON 为真源）
-- **iOS**：SwiftUI 消费端（问问 / 谁；连 Desk；不做上传）
+- **iOS**：SwiftUI。儿童问问 / 谁；家长模式回家上传（连 Desk，手机不跑大模型）

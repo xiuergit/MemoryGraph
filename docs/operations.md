@@ -1,8 +1,8 @@
 # MemoryGraph 回家操作手册
 
-> 适用场景：隔一段时间把 iPhone 照片导出到 Mac，批量分析 → 建索引 → 问答。  
-> **不需要** iOS 上传 App；家用 Mac + Ollama 即可完成主流程。  
-> iOS 消费端（问问 / 谁）可选，连本机 Desk；见 `apps/ios/README.md`。  
+> 适用场景：隔一段时间把 iPhone 照片导出到 Mac，批量分析 → 建索引 → 问答。也可以用 iOS 家长模式回家上传。  
+> 家用 Mac + Ollama 完成分析。导出这条不依赖手机 App。  
+> iOS：问问 / 谁，以及家长模式回家同步；见 `apps/ios/README.md`。  
 > **当前阶段（阶段 2）**：结构化问答打磨，见 [agent-intents.md](agent-intents.md)。
 
 ---

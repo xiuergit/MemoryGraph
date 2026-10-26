@@ -39,16 +39,16 @@ AI 是工具，Memory 才是目的。
 
 原图与 JSON 都在自家 Mac 上，可随时导出。Schema 长期稳定，不绑定某一模型。
 
-### 2. 单存储，导出采集
+### 2. 单存储，两条采集
 
-- **采集**：系统相册导出原图 → Mac `photo2json` → JSON（**不做** iOS App 上传）
-- **消费**：Vue Inspector + iOS 消费端（问问 / 谁）连 Desk，不写记忆库
+- **采集**：系统相册导出原图到 Mac，或 iOS 家长模式回家上传进 `data/photos/`
+- **消费**：Vue Inspector + iOS 问问 / 谁连 Desk。家长模式通过 Desk 写入原图、旁白和故事
 
 Mac 的 `data/photos/` 与 `data/memory/` 是唯一记忆库；协议见 `schemas/photo.v1.json` / `video.v1.json` / `audio.v1.json`（[media-memory.md](media-memory.md)）。
 
 ### 3. 本地优先
 
-视觉理解与人脸识别在 Mac 上用本地模型（Ollama、InsightFace 等）。iPhone 消费端只调 Desk API，不跑大模型。
+视觉理解与人脸识别在 Mac 上用本地模型（Ollama、InsightFace 等）。iPhone 不跑大模型。
 
 ### 4. 永远先做最小闭环
 
@@ -75,7 +75,7 @@ Mac 的 `data/photos/` 与 `data/memory/` 是唯一记忆库；协议见 `schema
 
 ### 阶段 2：结构化问答打磨 🚧（当前）
 
-> 原「阶段 2：日常采集 / iOS 上传」**取消**。采集继续「导出到 Mac」；`apps/ios` 为消费端，不做上传。
+> 原「阶段 2：日常采集 / iOS 上传」的编号已改用于问答打磨。回家上传后来按 Outbox 做完，见 [mobile-outbox.md](mobile-outbox.md)。
 
 问答核心（规则路由 + SQLite 事实 + 模板 / LLM 润色）已在阶段 3 可用；本阶段把「常问、问得清」做稳：
 
@@ -104,10 +104,11 @@ Mac 的 `data/photos/` 与 `data/memory/` 是唯一记忆库；协议见 `schema
 - ✅ Vue「事件」Tab；问答意图 `recent_outings` / `person_home_timeline` 等
 - 🔜 overlay 备注与 stories 内容录入（后端已有，日常使用仍少）
 
-### 采集说明（原阶段 2 上传）❌ 暂不做
+### 采集 ✅ 导出 + 回家上传
 
-- iOS 批量同步 / App 上传：**不需要**；继续定期从 iPhone 导出原图到 Mac
-- `hub/mac_server` 骨架可留，不作为当前里程碑
+- 导出：系统相册导出原图到 Mac，再 `photo2json`
+- 回家上传：iOS 家长模式 → Desk `POST /api/media/ingest`，旁白和故事同一趟同步。见 [mobile-outbox.md](mobile-outbox.md)
+- `hub/mac_server` 的 `/import` 骨架不作为这条链路
 
 ### 阶段 5+：体验与扩展 🔜（阶段 2 之后）
 
@@ -124,7 +125,7 @@ Mac 的 `data/photos/` 与 `data/memory/` 是唯一记忆库；协议见 `schema
 ```
 MemoryGraph/
 ├── schemas/              # JSON 协议
-├── apps/ios/             # iOS 消费端（问问 / 谁；不做上传）
+├── apps/ios/             # 问问 / 谁；家长模式回家上传
 ├── hub/                  # Mac 中枢（shared；mac_server 骨架暂不推进）
 ├── tools/
 │   ├── photo2json/       # 批量 Photo → JSON
@@ -147,7 +148,7 @@ MemoryGraph/
 
 ## 技术原则
 
-- Mac 用 Python；iOS 消费端用 Swift（连 Desk）
+- Mac 用 Python；iOS 用 Swift（问问 / 谁，以及家长模式回家上传）
 - 任何模型、框架可替换
 - Schema 是合同，变更须升版本（当前 photo v1.1，含 `location_coords`）
 - JSON 为唯一数据源；SQLite 可随时 `sync` 重建

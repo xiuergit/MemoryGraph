@@ -30,7 +30,7 @@ iPhone 导出原图                    家用 Mac（记忆中枢）
 ```
 
 - **不上云端**：照片与 AI 推理均在 Mac 本地；逆地理仅发送 GPS 坐标
-- **采集**：iPhone 导出原图 → Mac 批量处理（**不做** iOS 上传 App）
+- **采集**：系统相册导出到 Mac，或 iOS 家长模式回家上传（见 [mobile-outbox.md](docs/mobile-outbox.md)）
 - **消费**：Vue Inspector + iOS「问问 / 谁」连 Desk
 - **协议**：`photo.v1`（生产）+ `video.v1` / `audio.v1`（协议已定）；索引用 `media_type`；见 [media-memory.md](docs/media-memory.md)
 - **当前阶段（阶段 2）**：结构化问答打磨（见 [Project Charter](docs/Project%20Charter.md)、[agent-intents.md](docs/agent-intents.md)）；视频入库可并行
@@ -40,7 +40,7 @@ iPhone 导出原图                    家用 Mac（记忆中枢）
 ```
 MemoryGraph/
 ├── schemas/              # JSON 协议（photo / video / audio.v1）
-├── apps/ios/             # iOS 消费端（问问 / 谁；不做上传）
+├── apps/ios/             # 问问 / 谁；家长模式回家上传
 ├── hub/
 │   ├── shared/           # Schema、分析器、索引、Agent
 │   └── mac_server/       # 上传骨架（暂不推进）
@@ -124,9 +124,9 @@ Desk + Vue 用法见 [operations.md](docs/operations.md) 第八、九节。
 - ✅ `tools/memory_events`：同日同地 outing / 家事件聚合；`memory_annotations.json` 真源 + overlay 重挂、stories
 - ✅ `tools/memory_ask`：CLI 问答（20+ 意图；默认 file:// 链接）
 - ✅ `tools/memory_desk` + **`web/` Vue Inspector**：列表（含批量标人物）、问答、事件、详情、批量改地址、地址缓存、人脸库、维护工具、验证、健康报告
-- ✅ `apps/ios/`：消费端（问问 / 谁；语音）；**不做**上传
+- ✅ `apps/ios/`：问问 / 谁；家长模式待上传、故事、回家同步
+- ✅ 回家上传：Desk `POST /api/media/ingest` + 旁白 + 故事（`mac_server` 的 `/import` 骨架仍不推进）
 - ✅ `tools/memory_stats` / `tools/find` / `tools/memory_dedup`
 - 🚧 **阶段 2**：结构化问答打磨（`unknown` fallback、关键词意图、复合条件等）
-- ❌ iOS 上传 / `mac_server` 日常推进：暂不需要
 - ✅ 多媒体协议：`schemas/video.v1.json` / `audio.v1.json`（pipeline 未做）
 - 🔜 详情页改 `people[]`、筛选结果时间轴、向量 RAG、video/audio 入库

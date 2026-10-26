@@ -2,7 +2,7 @@
   <div class="app-container">
     <header class="app-header">
       <h1>MemoryGraph Inspector</h1>
-      <p>检查 memory JSON · 记忆问答 · 事件 · 去重 · 地址缓存 · 人脸库 · 维护工具</p>
+      <p>检查 memory JSON · 记忆问答 · 事件 · 去重 · 地址缓存 · 人脸库 · 维护工具 · 知识</p>
     </header>
 
     <main class="app-main">
@@ -53,6 +53,10 @@
         <el-tab-pane label="健康报告" name="stats">
           <MemoryStats />
         </el-tab-pane>
+
+        <el-tab-pane label="知识" name="docs" lazy>
+          <KnowledgeDocs />
+        </el-tab-pane>
       </el-tabs>
     </main>
   </div>
@@ -71,6 +75,7 @@ import MemoryValidate from './components/MemoryValidate.vue'
 import MemoryStats from './components/MemoryStats.vue'
 import MaintenanceTools from './components/MaintenanceTools.vue'
 import FaceRegistry from './components/FaceRegistry.vue'
+import KnowledgeDocs from './components/KnowledgeDocs.vue'
 
 const activeTab = ref('list')
 const selectedPhotoId = ref('')

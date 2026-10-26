@@ -1,6 +1,6 @@
 # 手机 Outbox：描述 · 故事 · 回家上传（设计合同）
 
-> 状态：**阶段 A–C + E（iOS Outbox）已落地**；儿童问问/谁保持；家长模式待上传/故事/回家同步。  
+> 状态：**阶段 A–C + E 已落地**。iOS 家长模式可待上传、写故事、回家同步；儿童问问 / 谁保持。  
 > **实施清单：** [`mobile-outbox-plan.md`](mobile-outbox-plan.md)  
 > 相关：[`architecture.md`](architecture.md)、[`operations.md`](operations.md)、[`media-memory.md`](media-memory.md)、[`schemas/README.md`](../schemas/README.md)、[`apps/ios/README.md`](../apps/ios/README.md)
 
@@ -220,7 +220,7 @@ Mac Ingest
   异步 AI / index / events
 ```
 
-Vue 继续重管理；与 iOS **共用** ingest + mutation API（实现时）。
+Vue 继续重管理；与 iOS 共用 ingest、describe、story.upsert。
 
 ---
 
