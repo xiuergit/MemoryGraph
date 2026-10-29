@@ -5,15 +5,12 @@ struct StoriesView: View {
     @EnvironmentObject private var sync: OutboxSyncService
 
     @State private var editing: StoryDraft?
-    @State private var showNew = false
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
                 Section {
                     Button {
                         editing = StoryDraft()
-                        showNew = true
                     } label: {
                         Label("新建故事（可无图）", systemImage: "plus.circle.fill")
                     }
@@ -45,7 +42,6 @@ struct StoriesView: View {
                     ForEach(store.stories) { story in
                         Button {
                             editing = story
-                            showNew = true
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(story.title.isEmpty ? "（无标题）" : story.title)
@@ -61,6 +57,7 @@ struct StoriesView: View {
                                 }
                             }
                         }
+                        .buttonStyle(.plain)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 store.removeStory(storyId: story.storyId)
@@ -73,14 +70,12 @@ struct StoriesView: View {
             }
             .navigationTitle("故事")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showNew) {
-                if let editing {
-                    NavigationStack {
-                        StoryEditorView(draft: editing)
-                    }
+            .sheet(item: $editing) { story in
+                NavigationStack {
+                    StoryEditorView(draft: story)
                 }
+                .preferredColorScheme(.light)
             }
-        }
     }
 
     private func storyStatus(_ s: StoryDraft) -> String {
@@ -102,9 +97,12 @@ struct StoryEditorView: View {
     @EnvironmentObject private var store: OutboxStore
     @Environment(\.dismiss) private var dismiss
 
+    private let source: StoryDraft
     @State private var draft: StoryDraft
+    @State private var didLoad = false
 
     init(draft: StoryDraft) {
+        source = draft
         _draft = State(initialValue: draft)
     }
 
@@ -152,8 +150,18 @@ struct StoryEditorView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .preferredColorScheme(.light)
         .navigationTitle(draft.title.isEmpty ? "新故事" : "编辑故事")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color(uiColor: .systemGroupedBackground), for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
+        .onAppear {
+            guard !didLoad else { return }
+            didLoad = true
+            draft = source
+        }
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("取消") { dismiss() }

@@ -8,11 +8,11 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("家长模式（待上传 / 故事）", isOn: $settings.parentMode)
+                Toggle("可以改面面的日程", isOn: $settings.parentMode)
             } header: {
                 Text("家长")
             } footer: {
-                Text("打开后底部会出现「待上传」「故事」。选图拷贝进 App，回家同步到 Mac；不删系统相册。")
+                Text("打开后，在面面的日程和月历里可以改时间、请假、加安排。关掉就只能看。")
             }
 
             Section {

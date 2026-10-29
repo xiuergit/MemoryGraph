@@ -32,9 +32,7 @@ struct AskView: View {
                 }
             }
             .background(KidPalette.sky.ignoresSafeArea())
-            .navigationTitle("问一问")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(KidPalette.sky, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $detailPhoto) { photo in
                 PhotoDetailView(photos: model.displayPhotos, initial: photo)
             }

@@ -6,6 +6,7 @@ struct MemoryGraphApp: App {
     @StateObject private var api: DeskAPIClient
     @StateObject private var outboxStore: OutboxStore
     @StateObject private var outboxSync: OutboxSyncService
+    @StateObject private var scheduleStore: ScheduleStore
 
     init() {
         let settings = AppSettings()
@@ -17,6 +18,7 @@ struct MemoryGraphApp: App {
         _outboxSync = StateObject(
             wrappedValue: OutboxSyncService(store: store, api: api, settings: settings)
         )
+        _scheduleStore = StateObject(wrappedValue: ScheduleStore())
     }
 
     var body: some Scene {
@@ -26,6 +28,7 @@ struct MemoryGraphApp: App {
                 .environmentObject(api)
                 .environmentObject(outboxStore)
                 .environmentObject(outboxSync)
+                .environmentObject(scheduleStore)
         }
     }
 }

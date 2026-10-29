@@ -33,8 +33,7 @@ struct OutboxView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
                 Section {
                     PhotosPicker(
                         selection: $pickerItems,
@@ -122,7 +121,6 @@ struct OutboxView: View {
             } message: {
                 Text(importError ?? "")
             }
-        }
     }
 
     @ViewBuilder
