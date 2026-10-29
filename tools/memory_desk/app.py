@@ -1085,6 +1085,33 @@ def api_stories_upsert(body: StoryUpsertBody) -> dict[str, Any]:
     return receipt.as_dict()
 
 
+class MobilePlanBody(BaseModel):
+    """手机整份课表和日记。字段保持客户端 JSON，便于原样取回。"""
+
+    schedules: list[dict[str, Any]] = Field(default_factory=list)
+    diaries: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@app.get("/api/mobile/plan")
+def api_mobile_plan_get() -> dict[str, Any]:
+    """读取 Mac 上的课表和日记备份。"""
+    from hub.shared.annotations import mobile_plan
+
+    plan = mobile_plan()
+    return {"status": "ok", **plan}
+
+
+@app.put("/api/mobile/plan")
+def api_mobile_plan_put(body: MobilePlanBody) -> dict[str, Any]:
+    """用手机当前的课表和日记替换 Mac 备份。空载荷不写，避免误清空。"""
+    from hub.shared.annotations import replace_mobile_plan
+
+    if not body.schedules and not body.diaries:
+        raise HTTPException(status_code=400, detail="没有可同步的课表或日记")
+    counts = replace_mobile_plan(body.schedules, body.diaries)
+    return {"status": "ok", **counts}
+
+
 @app.get("/api/stories/{story_id}")
 def api_story_detail(story_id: str) -> dict[str, Any]:
     from hub.shared.events import get_story

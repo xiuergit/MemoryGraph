@@ -225,6 +225,17 @@ struct StoryUpsertBody: Encodable {
     }
 }
 
+struct MobilePlanPayload: Codable {
+    var schedules: [ScheduleItem]
+    var diaries: [DiaryEntry]
+}
+
+struct MobilePlanReceipt: Decodable {
+    let status: String
+    let schedules: Int?
+    let diaries: Int?
+}
+
 struct DescribeBody: Encodable {
     let photoId: String
     let userNote: String

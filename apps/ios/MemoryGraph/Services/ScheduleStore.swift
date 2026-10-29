@@ -119,6 +119,19 @@ final class ScheduleStore: ObservableObject {
         !diaries(for: personId, on: day).isEmpty
     }
 
+    /// 用 Mac 上的备份覆盖手机。已有的人不再自动灌入种子课表。
+    func replacePlan(schedules: [ScheduleItem], diaries nextDiaries: [DiaryEntry]) {
+        items = schedules
+        diaries = nextDiaries
+        for personId in Set(schedules.map(\.personId).filter { !$0.isEmpty }) {
+            if !seededPersonIds.contains(personId) {
+                seededPersonIds.append(personId)
+            }
+        }
+        save()
+        saveDiaries()
+    }
+
     @discardableResult
     func saveDiary(personId: String, day: Date, entryId: String?, body: String) -> DiaryEntry? {
         let text = body.trimmingCharacters(in: .whitespacesAndNewlines)

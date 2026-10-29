@@ -31,6 +31,8 @@ def empty_annotations() -> dict[str, Any]:
         "schema_version": ANNOTATIONS_SCHEMA_VERSION,
         "overlays": [],
         "stories": [],
+        "schedules": [],
+        "diaries": [],
     }
 
 
@@ -121,17 +123,55 @@ def load_annotations(path: Path | None = None) -> dict[str, Any]:
         "schema_version": str(raw.get("schema_version") or ANNOTATIONS_SCHEMA_VERSION),
         "overlays": overlays,
         "stories": stories,
+        "schedules": _plan_rows(raw.get("schedules")),
+        "diaries": _plan_rows(raw.get("diaries")),
     }
 
 
+def _plan_rows(raw: Any) -> list[dict[str, Any]]:
+    """课表 / 日记按手机原样保留，只丢掉没有 id 的行。"""
+    if not isinstance(raw, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if not str(item.get("id") or "").strip():
+            continue
+        rows.append(item)
+    return rows
+
+
 def save_annotations(data: dict[str, Any], path: Path | None = None) -> Path:
-    """原子写入标注文件。"""
+    """原子写入标注文件。
+
+    未带上 schedules / diaries 时保留文件里已有的课表和日记，
+    避免事件同步把手机备份清掉。
+    """
     file_path = annotations_path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    previous: dict[str, Any] = {}
+    if file_path.is_file():
+        try:
+            loaded = json.loads(file_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                previous = loaded
+        except (json.JSONDecodeError, OSError):
+            previous = {}
+    if "schedules" in data:
+        schedules = _plan_rows(data.get("schedules"))
+    else:
+        schedules = _plan_rows(previous.get("schedules"))
+    if "diaries" in data:
+        diaries = _plan_rows(data.get("diaries"))
+    else:
+        diaries = _plan_rows(previous.get("diaries"))
     payload = {
         "schema_version": str(data.get("schema_version") or ANNOTATIONS_SCHEMA_VERSION),
         "overlays": data.get("overlays") or [],
         "stories": data.get("stories") or [],
+        "schedules": schedules,
+        "diaries": diaries,
     }
     text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     fd, tmp_name = tempfile.mkstemp(
@@ -372,3 +412,28 @@ def ensure_annotations_loaded(
         )
     save_annotations(empty_annotations(), file_path)
     return "created empty annotations file"
+
+
+def mobile_plan(path: Path | None = None) -> dict[str, Any]:
+    """手机课表和日记的 Mac 备份。"""
+    data = load_annotations(path)
+    return {
+        "schedules": data.get("schedules") or [],
+        "diaries": data.get("diaries") or [],
+    }
+
+
+def replace_mobile_plan(
+    schedules: list[Any],
+    diaries: list[Any],
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """用手机传来的整份课表和日记替换备份。不改 overlays / stories。"""
+    data = load_annotations(path)
+    data["schedules"] = _plan_rows(schedules)
+    data["diaries"] = _plan_rows(diaries)
+    save_annotations(data, path)
+    return {
+        "schedules": len(data["schedules"]),
+        "diaries": len(data["diaries"]),
+    }

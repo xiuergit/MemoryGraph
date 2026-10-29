@@ -130,7 +130,10 @@ private struct KidTabBar: View {
 private struct AdultHomeView: View {
     @EnvironmentObject private var api: DeskAPIClient
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var schedule: ScheduleStore
     @Environment(\.dismiss) private var dismiss
+    @State private var planMessage = ""
+    @State private var planBusy = false
 
     var body: some View {
         List {
@@ -147,6 +150,28 @@ private struct AdultHomeView: View {
                 }
             } footer: {
                 Text("选图、写旁白、写故事，回家再同步到 Mac。不删系统相册。")
+            }
+
+            Section {
+                Button {
+                    Task { await pushPlan() }
+                } label: {
+                    Label(planBusy ? "同步中…" : "同步课表和日记到 Mac", systemImage: "arrow.up.circle")
+                }
+                .disabled(planBusy || api.isReachable != true)
+                Button {
+                    Task { await pullPlan() }
+                } label: {
+                    Label("从 Mac 取回", systemImage: "arrow.down.circle")
+                }
+                .disabled(planBusy || api.isReachable != true)
+                if !planMessage.isEmpty {
+                    Text(planMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("课表和日记写在这台手机里。回家连上 Desk 再同步，会存进电脑的标注文件，不进 git。删了 App 可以用「从 Mac 取回」。")
             }
 
             Section {
@@ -175,6 +200,40 @@ private struct AdultHomeView: View {
             return "没连上"
         }
         return "正在找…"
+    }
+
+    private func pushPlan() async {
+        planBusy = true
+        defer { planBusy = false }
+        let plan = MobilePlanPayload(schedules: schedule.items, diaries: schedule.diaries)
+        guard !plan.schedules.isEmpty || !plan.diaries.isEmpty else {
+            planMessage = "手机上还没有课表或日记"
+            return
+        }
+        do {
+            let receipt = try await api.putMobilePlan(plan)
+            let n = receipt.schedules ?? plan.schedules.count
+            let m = receipt.diaries ?? plan.diaries.count
+            planMessage = "已传到 Mac（课表 \(n) · 日记 \(m)）"
+        } catch {
+            planMessage = error.localizedDescription
+        }
+    }
+
+    private func pullPlan() async {
+        planBusy = true
+        defer { planBusy = false }
+        do {
+            let plan = try await api.fetchMobilePlan()
+            guard !plan.schedules.isEmpty || !plan.diaries.isEmpty else {
+                planMessage = "Mac 上还没有备份"
+                return
+            }
+            schedule.replacePlan(schedules: plan.schedules, diaries: plan.diaries)
+            planMessage = "已取回（课表 \(plan.schedules.count) · 日记 \(plan.diaries.count)）"
+        } catch {
+            planMessage = error.localizedDescription
+        }
     }
 }
 

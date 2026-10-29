@@ -218,6 +218,18 @@ final class DeskAPIClient: ObservableObject {
         return try await send(request)
     }
 
+    func fetchMobilePlan() async throws -> MobilePlanPayload {
+        let request = try makeRequest(path: "/api/mobile/plan")
+        return try await send(request)
+    }
+
+    func putMobilePlan(_ plan: MobilePlanPayload) async throws -> MobilePlanReceipt {
+        var request = try makeRequest(path: "/api/mobile/plan", method: "PUT")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(plan)
+        return try await send(request)
+    }
+
     // MARK: - Internals
 
     private func makeRequest(
