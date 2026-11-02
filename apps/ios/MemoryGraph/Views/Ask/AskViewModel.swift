@@ -6,8 +6,10 @@ final class AskViewModel: ObservableObject {
     @Published var answer: String = ""
     @Published var evidence: [PhotoItem] = []
     @Published var followUps: [String] = []
-    /// 无问答证据时展示：面面最近单人像
+    /// 无问答证据且无往年今天时：面面最近单人像
     @Published var defaultPortraits: [PhotoItem] = []
+    /// 往年今天回忆卡（有则优先于最近像）
+    @Published var onThisDayYears: [OnThisDayYear] = []
     @Published var isLoading = false
     @Published var isLoadingPortraits = false
     @Published var errorMessage: String?
@@ -20,20 +22,28 @@ final class AskViewModel: ObservableObject {
 
     static let defaultKidName = "面面"
 
-    /// 右边「看照片」实际展示的列表
+    /// 右边「看照片」实际展示的列表（详情页翻页用）
     var displayPhotos: [PhotoItem] {
-        evidence.isEmpty ? defaultPortraits : evidence
+        if !evidence.isEmpty { return evidence }
+        if !onThisDayYears.isEmpty {
+            return onThisDayYears.flatMap(\.photos).filter { !$0.sourcePath.isEmpty }
+        }
+        return defaultPortraits
     }
 
     var photosTitle: String {
-        if evidence.isEmpty {
-            return defaultPortraits.isEmpty ? "看照片" : "\(Self.defaultKidName)最近"
-        }
+        if !evidence.isEmpty { return "看照片" }
+        if !onThisDayYears.isEmpty { return "往年的今天" }
+        if !defaultPortraits.isEmpty { return "\(Self.defaultKidName)最近" }
         return "看照片"
     }
 
+    var showingOnThisDay: Bool {
+        evidence.isEmpty && !onThisDayYears.isEmpty
+    }
+
     var showingDefaultPortraits: Bool {
-        evidence.isEmpty && !defaultPortraits.isEmpty
+        evidence.isEmpty && onThisDayYears.isEmpty && !defaultPortraits.isEmpty
     }
 
     func useChip(_ text: String, api: DeskAPIClient) {
@@ -75,7 +85,7 @@ final class AskViewModel: ObservableObject {
             lastContext = result.context
             answerToken += 1
             if evidence.isEmpty {
-                await loadDefaultPortraits(using: api)
+                await loadDefaultBrowse(using: api)
             }
         } catch {
             answer = ""
@@ -85,10 +95,28 @@ final class AskViewModel: ObservableObject {
         }
     }
 
-    func loadDefaultPortraits(using api: DeskAPIClient, force: Bool = false) async {
-        if !force, !defaultPortraits.isEmpty { return }
+    /// 默认逛图：优先往年今天，否则面面最近单人像。
+    func loadDefaultBrowse(using api: DeskAPIClient, force: Bool = false) async {
+        if !force, !onThisDayYears.isEmpty || !defaultPortraits.isEmpty { return }
         isLoadingPortraits = true
         defer { isLoadingPortraits = false }
+
+        do {
+            let response = try await api.fetchOnThisDay(person: Self.defaultKidName)
+            let years = response.years.filter { year in
+                !year.headline.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && year.photos.contains { !$0.sourcePath.isEmpty }
+            }
+            if !years.isEmpty {
+                onThisDayYears = years
+                defaultPortraits = []
+                return
+            }
+        } catch {
+            // 往年今天失败时继续尝试最近像
+        }
+
+        onThisDayYears = []
         do {
             defaultPortraits = try await api.fetchSoloPortraits(
                 person: Self.defaultKidName,
@@ -99,5 +127,10 @@ final class AskViewModel: ObservableObject {
                 defaultPortraits = []
             }
         }
+    }
+
+    /// 兼容旧调用名
+    func loadDefaultPortraits(using api: DeskAPIClient, force: Bool = false) async {
+        await loadDefaultBrowse(using: api, force: force)
     }
 }

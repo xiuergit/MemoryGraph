@@ -40,6 +40,7 @@ python tools/memory_desk/main.py --host 0.0.0.0 --port 8766 --no-browser
 |--------|----------|
 | 连通探测 | `GET /api/memory/years` |
 | 问答 / 人物 / 预览 | `/api/ask`、`/api/face/registry`、`/api/memory/list`、`/api/preview` |
+| 往年今天 | `GET /api/on-this-day`（空则回落最近单人像） |
 | 回家上传 | `POST /api/media/ingest` |
 | 旁白 | `POST /api/media/describe` |
 | 故事 | `POST /api/stories/upsert` |

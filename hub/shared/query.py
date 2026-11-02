@@ -184,6 +184,290 @@ def get_day_slice(
     }
 
 
+def _on_this_day_year_label(year: int, *, today: date) -> str:
+    delta = today.year - year
+    if delta == 1:
+        return "去年"
+    if delta == 2:
+        return "前年"
+    if delta > 2:
+        return f"{year}年"
+    return str(year)
+
+
+def _short_place_name(location: str, *, max_len: int = 14) -> str:
+    loc = (location or "").strip()
+    if not loc:
+        return ""
+    for sep in ("（", "(", "，", ",", "·", " "):
+        if sep in loc:
+            head = loc.split(sep, 1)[0].strip()
+            if head:
+                loc = head
+                break
+    if len(loc) > max_len:
+        return loc[: max_len - 1] + "…"
+    return loc
+
+
+def _headline_from_day_slice(slice_data: dict[str, Any]) -> tuple[str, str]:
+    """从 DaySlice 压一句主文案。返回 (headline, source)；无信号则空串。
+
+    优先级：故事标题 > overlay > 出门地点 > 照片地点 > 在家 > 有图。
+    只陈述库里已有字段，不编情绪。
+    """
+    for st in slice_data.get("stories") or []:
+        title = str(st.get("title") or "").strip()
+        if title:
+            return title, "story"
+
+    events = list(slice_data.get("events") or [])
+    outing = [e for e in events if not e.get("is_home")]
+    home = [e for e in events if e.get("is_home")]
+
+    for ev in outing:
+        overlay = ev.get("overlay") or {}
+        title = str(overlay.get("title") or "").strip()
+        if title:
+            return title, "overlay"
+
+    for ev in outing:
+        loc = _short_place_name(str(ev.get("location") or ""))
+        if loc and loc not in ("未知地点",):
+            return f"去了{loc}", "event_location"
+
+    for m in slice_data.get("media") or []:
+        loc = _short_place_name(str(m.get("location") or ""))
+        if loc and loc not in ("未知地点",):
+            return f"在{loc}", "photo_location"
+
+    if home and not outing:
+        return "在家", "home"
+
+    if slice_data.get("media"):
+        return "拍了这些", "photos_only"
+
+    if slice_data.get("user_notes"):
+        return "有一段旁白", "note_only"
+
+    return "", ""
+
+
+def _pick_on_this_day_photos(
+    slice_data: dict[str, Any],
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """代表图：优先有旁白、有地点、有路径的照片。"""
+    if limit <= 0:
+        return []
+    note_ids = {
+        str(n.get("photo_id") or "")
+        for n in (slice_data.get("user_notes") or [])
+        if n.get("photo_id")
+    }
+    photos: list[dict[str, Any]] = []
+    for m in slice_data.get("media") or []:
+        mt = str(m.get("media_type") or "photo")
+        if mt != "photo":
+            continue
+        photos.append(m)
+
+    def _score(item: dict[str, Any]) -> tuple[int, str, str]:
+        pid = str(item.get("photo_id") or "")
+        score = 0
+        if pid in note_ids:
+            score += 100
+        if str(item.get("location") or "").strip():
+            score += 10
+        if str(item.get("source_path") or "").strip():
+            score += 5
+        # 稳定次序：时间早的略优先（一天里的「开始」）
+        return (-score, str(item.get("timestamp") or ""), pid)
+
+    photos.sort(key=_score)
+    return photos[:limit]
+
+
+def _on_this_day_age_subline(person: str, day_key: str) -> str:
+    found = _find_member(person)
+    if found is None:
+        return ""
+    _, member = found
+    if not member.birth_date:
+        return ""
+    photo_day = _parse_day(day_key)
+    if photo_day is None:
+        return ""
+    age = compute_age_at_photo(
+        member.birth_date,
+        photo_day,
+        role=member.role,
+    )
+    short = _short_age_label(age)
+    if not short:
+        return ""
+    return f"那时大约{short}"
+
+
+def _on_this_day_note(slice_data: dict[str, Any], *, max_len: int = 40) -> str:
+    for n in slice_data.get("user_notes") or []:
+        text = str(n.get("user_note") or "").strip()
+        if not text:
+            continue
+        text = " ".join(text.split())
+        if len(text) > max_len:
+            return text[: max_len - 1] + "…"
+        return text
+    return ""
+
+
+def _list_years_for_mmdd(
+    conn: sqlite3.Connection,
+    *,
+    mmdd: str,
+    person: str = "",
+    before_year: int,
+    limit: int = 8,
+) -> list[int]:
+    """有 timestamp 落在该月日、且早于 before_year 的年份（新→旧）。"""
+    if limit <= 0:
+        limit = 8
+    clauses = [
+        "p.timestamp != ''",
+        "substr(p.timestamp, 6, 5) = ?",
+        "CAST(substr(p.timestamp, 1, 4) AS INTEGER) < ?",
+    ]
+    params: list[Any] = [mmdd, before_year]
+
+    if person:
+        tokens = person_search_tokens(person) or [person]
+        token_clauses: list[str] = []
+        for token in tokens:
+            token_clauses.append("(pp2.person_name LIKE ? OR pp2.person_id LIKE ?)")
+            pattern = f"%{token}%"
+            params.extend([pattern, pattern])
+        clauses.append(
+            f"""
+            EXISTS (
+                SELECT 1 FROM photo_people pp2
+                WHERE pp2.photo_id = p.photo_id
+                  AND ({' OR '.join(token_clauses)})
+            )
+            """
+        )
+
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT CAST(substr(p.timestamp, 1, 4) AS INTEGER) AS y
+        FROM photos p
+        WHERE {' AND '.join(clauses)}
+        ORDER BY y DESC
+        LIMIT ?
+        """,
+        (*params, limit),
+    ).fetchall()
+    return [int(r["y"]) for r in rows if r["y"]]
+
+
+def get_on_this_day(
+    conn: sqlite3.Connection,
+    *,
+    person: str = "",
+    mmdd: str = "",
+    today: date | None = None,
+    photo_limit: int = 3,
+    years_limit: int = 5,
+) -> dict[str, Any]:
+    """往年今天：按 MM-DD 跨年聚合 DaySlice，压成回忆卡片。
+
+    无历年信号时 years 为空，由客户端回落到「最近单人像」。
+    """
+    now = today or date.today()
+    key = (mmdd or "").strip()
+    if not key:
+        key = now.strftime("%m-%d")
+    # 容错 3/9 → 03-09
+    if len(key) == 5 and key[2] == "-":
+        try:
+            month_i, day_i = int(key[:2]), int(key[3:])
+            key = f"{month_i:02d}-{day_i:02d}"
+        except ValueError:
+            pass
+    if len(key) != 5 or key[2] != "-":
+        return {
+            "mmdd": key,
+            "person": person or "",
+            "found": False,
+            "error": "mmdd 须为 MM-DD",
+            "years": [],
+        }
+
+    who = (person or "").strip()
+    years = _list_years_for_mmdd(
+        conn,
+        mmdd=key,
+        person=who,
+        before_year=now.year,
+        limit=max(1, min(int(years_limit or 5), 12)),
+    )
+
+    cards: list[dict[str, Any]] = []
+    for year in years:
+        day_key = f"{year}-{key}"
+        try:
+            date.fromisoformat(day_key)
+        except ValueError:
+            # 2/29 等非法日跳过
+            continue
+        slice_data = get_day_slice(
+            conn,
+            day_key,
+            person=who,
+            media_limit=200,
+        )
+        headline, source = _headline_from_day_slice(slice_data)
+        photos = _pick_on_this_day_photos(slice_data, limit=photo_limit)
+        # 够格：有主文案，且（有图或有旁白/故事/事件）
+        has_signal = bool(
+            photos
+            or slice_data.get("user_notes")
+            or slice_data.get("stories")
+            or slice_data.get("events")
+        )
+        if not headline or not has_signal:
+            continue
+        note = _on_this_day_note(slice_data)
+        cards.append(
+            {
+                "year": year,
+                "day": day_key,
+                "year_label": _on_this_day_year_label(year, today=now),
+                "headline": headline,
+                "headline_source": source,
+                "subline": _on_this_day_age_subline(who, day_key) if who else "",
+                "note": note,
+                "photos": photos,
+                "media_count": int(slice_data.get("media_count") or 0),
+                "event_count": len(slice_data.get("events") or []),
+                "story_count": len(slice_data.get("stories") or []),
+            }
+        )
+        if len(cards) >= max(1, min(int(years_limit or 5), 12)):
+            break
+
+    return {
+        "mmdd": key,
+        "person": who,
+        "found": True,
+        "years": cards,
+        "note": (
+            "OnThisDay=历年同月日 DaySlice 卡片；"
+            "headline 仅来自故事/overlay/地点/有图模板；空则客户端回落最近像"
+        ),
+    }
+
+
 PHOTO_FETCH_CAP = 5000
 
 # 口语关键词 → 索引里常见 objects/actions/tags

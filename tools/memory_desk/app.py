@@ -919,6 +919,71 @@ def api_day_slice(
     return result
 
 
+@app.get("/api/on-this-day")
+def api_on_this_day(
+    person: str = "面面",
+    mmdd: str = "",
+    photo_limit: int = 3,
+    years_limit: int = 5,
+) -> dict[str, Any]:
+    """往年今天回忆卡片（On This Day）。
+
+    基于历年同月日的 DaySlice，压成 headline + 少量代表图。
+    years 为空时由客户端回落「最近单人像」；勿把本接口当成相册墙。
+    """
+    from pathlib import Path
+
+    from hub.shared.photo_links import enrich_photo_dict
+    from hub.shared.query import get_on_this_day
+
+    conn = connect(MEMORY_DB)
+    init_db(conn)
+    try:
+        result = get_on_this_day(
+            conn,
+            person=(person or "").strip(),
+            mmdd=(mmdd or "").strip(),
+            photo_limit=max(1, min(int(photo_limit or 3), 8)),
+            years_limit=max(1, min(int(years_limit or 5), 12)),
+        )
+    finally:
+        conn.close()
+
+    years_out: list[dict[str, Any]] = []
+    for card in result.get("years") or []:
+        photos_out: list[dict[str, Any]] = []
+        for raw in card.get("photos") or []:
+            enriched = enrich_photo_dict(dict(raw))
+            source = str(enriched.get("source_path") or "")
+            photo_path = Path(source) if source else None
+            has_file = bool(photo_path and photo_path.is_file())
+            people = enriched.get("people") or ""
+            if isinstance(people, list):
+                people = "、".join(str(p) for p in people if p)
+            photos_out.append(
+                {
+                    "photo_id": str(enriched.get("photo_id") or ""),
+                    "media_type": enriched.get("media_type") or "photo",
+                    "timestamp": enriched.get("timestamp") or "",
+                    "location": enriched.get("location") or "",
+                    "scene": enriched.get("scene") or "",
+                    "people": people,
+                    "source_path": str(photo_path) if has_file else "",
+                    "has_file": has_file,
+                }
+            )
+        years_out.append({**card, "photos": photos_out})
+
+    return {
+        "mmdd": result.get("mmdd") or "",
+        "person": result.get("person") or "",
+        "found": bool(result.get("found")),
+        "error": result.get("error") or "",
+        "years": years_out,
+        "note": result.get("note") or "",
+    }
+
+
 @app.get("/api/events/locations")
 def api_events_locations(include_home: bool = True) -> dict[str, Any]:
     from hub.shared.events import list_event_locations

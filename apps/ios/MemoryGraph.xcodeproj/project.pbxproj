@@ -37,6 +37,7 @@
 		A11A00010000000000000003 /* ScheduleCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A00010000000000000004 /* ScheduleCatalog.swift */; };
 		A11A00010000000000000005 /* ScheduleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A00010000000000000006 /* ScheduleStore.swift */; };
 		A11A00010000000000000007 /* PersonScheduleViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A00010000000000000008 /* PersonScheduleViews.swift */; };
+		A11A00010000000000000009 /* OnThisDayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11A0001000000000000000A /* OnThisDayStrip.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -72,6 +73,7 @@
 		A11A00010000000000000004 /* ScheduleCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleCatalog.swift; sourceTree = "<group>"; };
 		A11A00010000000000000006 /* ScheduleStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleStore.swift; sourceTree = "<group>"; };
 		A11A00010000000000000008 /* PersonScheduleViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonScheduleViews.swift; sourceTree = "<group>"; };
+		A11A0001000000000000000A /* OnThisDayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnThisDayStrip.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,6 +105,7 @@
 				7C60AF0802E54EB68115EAE2 /* AskView.swift */,
 				C3DF243E2E724578ABC2F1B8 /* AskViewModel.swift */,
 				6E5398FAB6B043B0BFDE9594 /* KidTalkMicButton.swift */,
+				A11A0001000000000000000A /* OnThisDayStrip.swift */,
 			);
 			path = Ask;
 			sourceTree = "<group>";
@@ -274,6 +277,7 @@
 				290008F7DC024DE592969A5A /* AppSettings.swift in Sources */,
 				CA1B13159F03404DBD675698 /* AskView.swift in Sources */,
 				10010D1A347C412AB143B376 /* AskViewModel.swift in Sources */,
+				A11A00010000000000000009 /* OnThisDayStrip.swift in Sources */,
 				738D0BC116B04FB289158A80 /* DeskAPIClient.swift in Sources */,
 				3D0AEE61B56A42B498C39321 /* KidTalkMicButton.swift in Sources */,
 				87F7F3B053464AB185612BA6 /* MemoryGraphApp.swift in Sources */,

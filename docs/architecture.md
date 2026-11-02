@@ -179,6 +179,7 @@ Mac 问答入口：`hub/shared/agent.py` → Desk `POST /api/ask`（可选 `cont
 |------|--------|------|
 | **全库相册式时间轴** | ❌ 不做 | 按年/月/日滚全部缩略图 ≈ 重做 Photos App，与「记忆系统」定位冲突；日常翻图用 iPhone 相册 |
 | **日历日切片 DaySlice** | ✅ 查询底座 | 按日聚合媒体+旁白+事件+故事；UI 可后做 |
+| **往年今天 On This Day** | ✅ 轻量回忆 | `GET /api/on-this-day` · `query.get_on_this_day()`：历年同月日 → headline+代表图；空则 iOS 回落「面面最近」 |
 | **筛选结果时间轴** | 🔜 远期可选 | 先检索（人物/物体/scene/tags/地点）→ 命中结果按时间分组，看「第一次」「变化趋势」 |
 | **当前替代** | ✅ 已有 | 列表 Tab（分页+人物/关键词/年份筛选）、事件 Tab（出门粒度）、问答（证据缩略图）、CLI `memory_index timeline` |
 

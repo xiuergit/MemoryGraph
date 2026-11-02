@@ -391,3 +391,62 @@ struct PersonInfo: Decodable, Identifiable, Hashable {
 struct YearsResponse: Decodable {
     let years: [String]?
 }
+
+// MARK: - On This Day（往年今天）
+
+struct OnThisDayResponse: Decodable {
+    let mmdd: String?
+    let person: String?
+    let found: Bool?
+    let years: [OnThisDayYear]
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case mmdd, person, found, years, error
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mmdd = try c.decodeIfPresent(String.self, forKey: .mmdd)
+        person = try c.decodeIfPresent(String.self, forKey: .person)
+        found = try c.decodeIfPresent(Bool.self, forKey: .found)
+        years = try c.decodeIfPresent([OnThisDayYear].self, forKey: .years) ?? []
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+struct OnThisDayYear: Decodable, Identifiable, Hashable {
+    var id: String { day }
+
+    let year: Int
+    let day: String
+    let yearLabel: String
+    let headline: String
+    let subline: String
+    let note: String
+    let photos: [PhotoItem]
+
+    enum CodingKeys: String, CodingKey {
+        case year, day, headline, subline, note, photos
+        case yearLabel = "year_label"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        year = try c.decodeIfPresent(Int.self, forKey: .year) ?? 0
+        day = try c.decodeIfPresent(String.self, forKey: .day) ?? ""
+        yearLabel = try c.decodeIfPresent(String.self, forKey: .yearLabel) ?? ""
+        headline = try c.decodeIfPresent(String.self, forKey: .headline) ?? ""
+        subline = try c.decodeIfPresent(String.self, forKey: .subline) ?? ""
+        note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        photos = try c.decodeIfPresent([PhotoItem].self, forKey: .photos) ?? []
+    }
+
+    var titleLine: String {
+        let label = yearLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let head = headline.trimmingCharacters(in: .whitespacesAndNewlines)
+        if label.isEmpty { return head }
+        if head.isEmpty { return label }
+        return "\(label) · \(head)"
+    }
+}

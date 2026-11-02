@@ -117,6 +117,24 @@ final class DeskAPIClient: ObservableObject {
         return out
     }
 
+    /// 往年今天回忆卡片；years 为空表示无历年信号。
+    func fetchOnThisDay(
+        person: String = "面面",
+        photoLimit: Int = 3,
+        yearsLimit: Int = 5
+    ) async throws -> OnThisDayResponse {
+        try await send(
+            try makeRequest(
+                path: "/api/on-this-day",
+                query: [
+                    URLQueryItem(name: "person", value: person),
+                    URLQueryItem(name: "photo_limit", value: String(photoLimit)),
+                    URLQueryItem(name: "years_limit", value: String(yearsLimit)),
+                ]
+            )
+        )
+    }
+
     func getYears() async throws -> [String] {
         let response: YearsResponse = try await send(try makeRequest(path: "/api/memory/years"))
         return response.years ?? []

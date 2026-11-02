@@ -228,13 +228,17 @@ struct AskView: View {
     @ViewBuilder
     private var photosSection: some View {
         let photos = model.displayPhotos
-        if !photos.isEmpty || model.isLoadingPortraits {
+        if !photos.isEmpty || model.isLoadingPortraits || model.showingOnThisDay {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(model.photosTitle)
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(KidPalette.ink)
-                    if model.showingDefaultPortraits {
+                    if model.showingOnThisDay {
+                        Text("回忆")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else if model.showingDefaultPortraits {
                         Text("每天一张")
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
@@ -242,10 +246,18 @@ struct AskView: View {
                     Spacer(minLength: 0)
                 }
 
-                if model.isLoadingPortraits && photos.isEmpty {
+                if model.isLoadingPortraits && photos.isEmpty && !model.showingOnThisDay {
                     ProgressView("找照片…")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
+                } else if model.showingOnThisDay {
+                    OnThisDayStrip(
+                        years: model.onThisDayYears,
+                        cardSize: horizontalSizeClass == .regular ? 148 : 128
+                    ) { photo in
+                        speaker.stop()
+                        detailPhoto = photo
+                    }
                 } else {
                     PhotoStripTwoRow(photos: photos, cardSize: horizontalSizeClass == .regular ? 168 : 148) { photo in
                         speaker.stop()
