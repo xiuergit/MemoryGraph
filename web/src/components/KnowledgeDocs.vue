@@ -32,6 +32,9 @@
           <el-radio-button value="read">阅读</el-radio-button>
           <el-radio-button value="edit">编辑</el-radio-button>
         </el-radio-group>
+        <el-button size="small" :disabled="!draft" :loading="printing" @click="printDoc">
+          打印
+        </el-button>
         <el-button type="primary" size="small" :disabled="!dirty" :loading="saving" @click="save">
           保存
         </el-button>
@@ -85,6 +88,7 @@ const draft = ref('')
 const mode = ref('read')
 const loading = ref(false)
 const saving = ref(false)
+const printing = ref(false)
 const creating = ref(false)
 const createVisible = ref(false)
 const createName = ref('')
@@ -220,6 +224,77 @@ function onPreviewClick(event) {
   if (!path) return
   event.preventDefault()
   openFile(path)
+}
+
+function docTitle() {
+  const match = draft.value.match(/^#{1,3}\s+(.+)$/m)
+  return match ? match[1].trim() : '知识'
+}
+
+function printDoc() {
+  if (!draft.value || printing.value) return
+  printing.value = true
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  Object.assign(iframe.style, {
+    position: 'fixed',
+    width: '0',
+    height: '0',
+    border: 'none',
+    opacity: '0',
+    pointerEvents: 'none',
+  })
+  document.body.appendChild(iframe)
+  const doc = iframe.contentDocument
+  const win = iframe.contentWindow
+  if (!doc || !win) {
+    iframe.remove()
+    printing.value = false
+    ElMessage.error('打印窗口打不开')
+    return
+  }
+  const title = docTitle()
+  doc.open()
+  doc.write(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title.replace(/[<>&"]/g, '')}</title>
+<style>
+  @page { size: A4; margin: 14mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: #111;
+    font: 11pt/1.45 "Songti SC", "PingFang SC", "Noto Serif SC", serif;
+  }
+  h1 { margin: 0 0 8pt; font-size: 18pt; line-height: 1.25; }
+  h2 {
+    margin: 14pt 0 6pt;
+    padding-bottom: 2pt;
+    border-bottom: 0.6pt solid #222;
+    font-size: 13pt;
+    line-height: 1.3;
+    page-break-after: avoid;
+  }
+  h3 { margin: 10pt 0 4pt; font-size: 12pt; page-break-after: avoid; }
+  p { margin: 0.35em 0 0.6em; }
+  ul, ol { margin: 0.2em 0 0.7em; padding-left: 1.3em; }
+  li { margin: 0.2em 0; }
+  table { width: 100%; border-collapse: collapse; margin: 4pt 0 8pt; font-size: 10pt; }
+  th, td { padding: 4pt 6pt; border: 0.6pt solid #444; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  tr, li, h2 { page-break-inside: avoid; }
+  strong { font-weight: 700; }
+</style></head><body><article id="sheet"></article></body></html>`)
+  doc.close()
+  const sheet = doc.getElementById('sheet')
+  if (sheet) sheet.innerHTML = html.value
+  const cleanup = () => {
+    iframe.remove()
+    printing.value = false
+  }
+  win.onafterprint = cleanup
+  win.focus()
+  win.print()
+  setTimeout(cleanup, 120000)
 }
 
 function onEditorKeydown(event) {
