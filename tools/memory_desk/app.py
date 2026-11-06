@@ -127,7 +127,11 @@ from hub.shared.project_docs import (
     write_project_doc,
 )
 
-app = FastAPI(title="MemoryGraph Desk", version="0.1.0")
+app = FastAPI(
+    title="MemoryGraph Desk",
+    version="0.1.0",
+    swagger_ui_parameters={"filter": True, "docExpansion": "list"},
+)
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heif", ".heic"}
 _VIDEO_EXTS = set(SUPPORTED_VIDEO_EXTENSIONS)
@@ -2476,7 +2480,11 @@ class ToolsBackfillTranscriptBody(ToolsLimitBody):
 
 
 def _rebuild_pydantic_models_for_dynamic_load() -> None:
-    """main.py 用 importlib 加载本模块时，需 rebuild 含 Optional 注解的模型。"""
+    """main.py 用 importlib 加载本模块时，Python 3.9 下含 X | Y 的模型要 rebuild。
+
+    漏掉的话，打开 /openapi.json 会在第一个未完成的请求体上 500。
+    扫本模块全部 BaseModel，避免手写名单再漏。
+    """
     import typing
 
     ns = {
@@ -2484,24 +2492,13 @@ def _rebuild_pydantic_models_for_dynamic_load() -> None:
         "Optional": typing.Optional,
         "List": typing.List,
     }
-    for model_cls in (
-        FaceEnrollRequest,
-        FacePersonUpdateBody,
-        MemoryUpdateRequest,
-        TranscriptUpdateRequest,
-        BatchPeopleByIdsRequest,
-        BatchLocationByIdsRequest,
-        ToolsLimitBody,
-        ToolsRegeocodeBody,
-        ToolsBackfillFacesBody,
-        ToolsProcessMediaBody,
-        ToolsProcessVideosBody,
-        ToolsBackfillTranscriptBody,
-    ):
+    module_name = ns["__name__"]
+    for model_cls in list(ns.values()):
+        if not isinstance(model_cls, type) or not issubclass(model_cls, BaseModel):
+            continue
+        if model_cls.__module__ != module_name:
+            continue
         model_cls.model_rebuild(_types_namespace=ns)
-
-
-_rebuild_pydantic_models_for_dynamic_load()
 
 
 @app.get("/api/tools/config")
@@ -3124,3 +3121,9 @@ _INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+_rebuild_pydantic_models_for_dynamic_load()
+
+from tools.memory_desk.api_notes import apply_api_notes
+
+apply_api_notes(app)
